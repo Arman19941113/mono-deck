@@ -253,6 +253,15 @@ extension Git {
         let ignored = Set(output.stdout.split(separator: 0).map { String(decoding: $0, as: UTF8.self) })
         return names.filter { !ignored.contains("\($0)/") }
     }
+    func checkRepositoryIgnoreCommit(_ repositoryID: String, at root: URL) async throws {
+        guard try await checkedOutLocalBranchRef(at: root) == nil else { return }
+        let file = root.appending(path: ".gitignore")
+        guard let contents = try workspaceIgnoreContents(at: file),
+              try await workspaceFilesNeedCommit([".gitignore"], at: root) == false,
+              try await ignored([repositoryID], contents: contents).isEmpty else {
+            throw MonoDeckError("workspace-branch-required", .workspaceCommitRequiresLocalBranch)
+        }
+    }
     func ensureIgnore(_ names: [String], at root: URL, cancellable: Bool = true) async throws -> Bool {
         do { return try await updateIgnore(names, at: root, cancellable: cancellable) }
         catch let error as MonoDeckError where ["cancelled", "ignore-write-failed", "ignore-unavailable"].contains(error.code) { throw error }
@@ -260,11 +269,7 @@ extension Git {
     }
     private func updateIgnore(_ names: [String], at root: URL, cancellable: Bool) async throws -> Bool {
         let file = root.appending(path: ".gitignore")
-        if PathSafety.exists(file) {
-            let attrs = try FileManager.default.attributesOfItem(atPath: file.path)
-            guard attrs[.type] as? FileAttributeType == .typeRegular, FileManager.default.isReadableFile(atPath: file.path), FileManager.default.isWritableFile(atPath: file.path) else { throw MonoDeckError("ignore-unavailable", .gitignoreMustBeReadableWritableRegularFile) }
-        }
-        var data = PathSafety.exists(file) ? try Data(contentsOf: file) : Data((Self.defaultWorkspaceIgnoreRules + "\n\n").utf8)
+        var data = try workspaceIgnoreContents(at: file) ?? Data((Self.defaultWorkspaceIgnoreRules + "\n\n").utf8)
         let missing = try await ignored(names, contents: data, cancellable: cancellable)
         guard !missing.isEmpty else { return false }
         var section = Data("# mono-deck\n".utf8)
@@ -283,6 +288,12 @@ extension Git {
         do { try data.write(to: file, options: .atomic) }
         catch { throw MonoDeckError("ignore-write-failed", .couldNotUpdateGitignore(MonoDeckError.wrap(error).userMessage)) }
         return true
+    }
+    private func workspaceIgnoreContents(at file: URL) throws -> Data? {
+        guard PathSafety.exists(file) else { return nil }
+        let attrs = try FileManager.default.attributesOfItem(atPath: file.path)
+        guard attrs[.type] as? FileAttributeType == .typeRegular, FileManager.default.isReadableFile(atPath: file.path), FileManager.default.isWritableFile(atPath: file.path) else { throw MonoDeckError("ignore-unavailable", .gitignoreMustBeReadableWritableRegularFile) }
+        return try Data(contentsOf: file)
     }
     func checkRootCommit(_ oid: String, members: [String], at root: URL) async throws {
         let paths = ["repositories", "worktrees"] + members

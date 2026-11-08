@@ -56,7 +56,11 @@ public indirect enum UserMessage: Sendable, Equatable {
     case noCompleteSupportedGitRepositoryURLsWereFound
     case yamlTooComplexToImport
     case yamlContainsRepositoryURLWithEmbeddedCredentialsRemove
-    case importRequiresEmptyWorkspaceChooseAnotherWorkspaceIn
+    case importedBranchUsesFallback(String)
+    case importedWorktreeDoesNotMatch(String, String)
+    case importedWorktreeReused
+    case workspaceImportRepositoryChanged(String)
+    case workspaceImportRequiresBranch(String)
     case workspaceRecordIsMissing(String)
     case workspaceTracksRepositoriesOrWorktreesRemovePathsFrom
     case repositorySummaryIsUnavailable
@@ -161,6 +165,7 @@ public indirect enum UserMessage: Sendable, Equatable {
     case changesWereRestoredButTemporaryStashCouldNot
     case workspaceChangesAndIndexStateWereRestoredBut(String, UserMessage)
     case couldNotFinishRestoringWorkspaceChangesStashWas(String, String, UserMessage)
+    case workspaceCommitRequiresLocalBranch
     case workspaceCommitRequiresRegularFile(String)
     case couldNotCheckWorkspaceFileChanges
     case couldNotAutomaticallyCommitWorkspaceFilesSavedResources(UserMessage)
@@ -252,7 +257,11 @@ public indirect enum UserMessage: Sendable, Equatable {
         case .noCompleteSupportedGitRepositoryURLsWereFound: return "No complete, supported Git repository URLs were found in this YAML file."
         case .yamlTooComplexToImport: return "YAML is too complex to import. Reduce nesting or repeated aliases and retry."
         case .yamlContainsRepositoryURLWithEmbeddedCredentialsRemove: return "YAML contains a repository URL with embedded credentials. Remove credentials and retry."
-        case .importRequiresEmptyWorkspaceChooseAnotherWorkspaceIn: return "Import requires an empty workspace. Choose another workspace in Settings. Existing files and configuration were not changed."
+        case .importedBranchUsesFallback(let ref): return "Created the branch from \(ref) because no local or remote-tracking branch matched."
+        case .importedWorktreeDoesNotMatch(let path, let branch): return "Kept \(path) and skipped the group because the path could not be verified as a worktree of the expected repository on branch \(branch)."
+        case .importedWorktreeReused: return "Reused the existing worktree for this group."
+        case .workspaceImportRepositoryChanged(let id): return "Repository \(id) changed while preparing the import. Retry the import."
+        case .workspaceImportRequiresBranch(let branch): return "Switch the workspace to branch \(branch) before importing the workspace configuration."
         case .workspaceRecordIsMissing(let arg1): return "Workspace record is missing: \(arg1)"
         case .workspaceTracksRepositoriesOrWorktreesRemovePathsFrom: return "Workspace tracks repositories/ or worktrees/. Remove those paths from Git outside MonoDeck first."
         case .repositorySummaryIsUnavailable: return "Repository summary is unavailable."
@@ -357,6 +366,7 @@ public indirect enum UserMessage: Sendable, Equatable {
         case .changesWereRestoredButTemporaryStashCouldNot: return "Changes were restored, but the temporary stash could not be located for cleanup."
         case .workspaceChangesAndIndexStateWereRestoredBut(let arg1, let arg2): return "Workspace changes and their index state were restored, but stash \(arg1) could not be removed. Do not apply it again. \(arg2.englishDescription)"
         case .couldNotFinishRestoringWorkspaceChangesStashWas(let arg1, let arg2, let arg3): return "Could not finish restoring workspace changes. Stash \(arg1) was kept; completed workspace commits were kept. Check the working tree and index for conflicts before restoring it manually with git stash apply --index \(arg2). \(arg3.englishDescription)"
+        case .workspaceCommitRequiresLocalBranch: return "Automatic commits of workspace files require a checked-out local branch. Switch to or create a local branch, then retry."
         case .workspaceCommitRequiresRegularFile(let arg1): return "Workspace commit requires a regular file: \(arg1)"
         case .couldNotCheckWorkspaceFileChanges: return "Could not check workspace file changes."
         case .couldNotAutomaticallyCommitWorkspaceFilesSavedResources(let arg1): return "Could not automatically commit workspace files. Saved resources and file changes were kept; the specified files may be staged. Check your Git identity, signing configuration and repository state, then retry. \(arg1.englishDescription)"

@@ -120,6 +120,7 @@ extension WorkspaceService {
             let target = try PathSafety.child("repositories/\(repositoryID)", of: record.rootURL)
             guard !PathSafety.exists(target) else { throw MonoDeckError("path-conflict", .repositoryTargetIsOccupied) }
             try await git.checkRepository(prepared.directory.url, origin: repository.url, main: true)
+            try await git.checkRepositoryIgnoreCommit(repositoryID, at: record.rootURL)
             try checkCancellation()
             try prepared.staging.validate(); try prepared.directory.validate()
             progress(.init(repositoryID, .saving, cancellable: false))

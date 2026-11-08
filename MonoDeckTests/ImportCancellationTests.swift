@@ -133,7 +133,9 @@ import Testing
         #expect(!PathSafety.exists(saved.repositoryURL("other")) && !PathSafety.exists(saved.groupURL("feature")))
         let committed = try await fixture.service.git.run(["show", "HEAD:.gitignore"], at: fixture.root).text
         #expect(committed.contains("/repo/") && !committed.contains("/other/"))
-        if finalItem {
+        if finalItem, kind == "workspace" {
+            #expect(model.presentation.result?.status == .success)
+        } else if finalItem {
             #expect(model.presentation.result == nil || (kind == "quit" && model.presentation.result?.status == .success))
         } else {
             let result = try #require(model.presentation.result)
@@ -250,7 +252,7 @@ import Testing
         version: 2
         repositories:
           - url: \(fixture.remoteURL)
-        \(other.map { "  - url: \($0)\n" } ?? "")groups: \(group || other != nil ? "\n  feature:\n    branch-name: feature\n    created-at: \"2026-10-10T00:00:00Z\"\n    repository-ids: [repo]" : "{}")
+        \(other.map { "  - url: \($0)\n" } ?? "")groups: \(group || other != nil ? "\n  feature:\n    branch-name: feature\n    repository-ids: [repo]" : "{}")
         """
     }
 }

@@ -54,6 +54,7 @@ struct InterfaceText {
     }
 
     func resultDisplayItems(_ result: OperationResult) -> [ItemResult] {
+        if result.command == "workspace.configuration.import" { return result.items }
         if result.command == "repo.update" {
             return result.items.filter { $0.status == .failed || ($0.status == .success && $0.data?["disposition"] == "updated") }
         }

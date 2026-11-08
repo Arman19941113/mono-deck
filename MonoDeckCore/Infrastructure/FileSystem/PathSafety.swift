@@ -61,12 +61,11 @@ public enum PathSafety {
         }
         return current
     }
-    public static func emptyResourceDirectories(_ root: URL, excluding excluded: [URL] = []) throws {
-        let excludedPaths = Set(excluded.map { $0.standardizedFileURL.path })
+    public static func emptyResourceDirectories(_ root: URL) throws {
         for name in ["repositories", "worktrees"] {
             let url = root.appending(path: name)
             try directory(url, allowMissing: true)
-            if exists(url), try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil).contains(where: { !excludedPaths.contains($0.standardizedFileURL.path) }) {
+            if exists(url), try !FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil).isEmpty {
                 throw MonoDeckError("workspace-not-empty", .chooseFolderWithEmptyRepositoriesAndWorktrees(url.path))
             }
         }

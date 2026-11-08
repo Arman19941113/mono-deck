@@ -53,8 +53,8 @@ struct RepositoryPreparationTests {
         #expect(try stagingDirectories(in: fixture).isEmpty)
     }
 
-    @Test(arguments: ["none", "directory", "file", "registered"])
-    func workspacePublicationExcludesOnlyItsOwnStagingDirectory(_ foreign: String) async throws {
+    @Test(arguments: ["directory", "file", "registered", "same-repository", "target-conflict"])
+    func workspacePublicationChecksOnlyImportTargetsAndSkipsConcurrentAdds(_ foreign: String) async throws {
         let fixture = try await Fixture(); defer { fixture.remove() }
         try await fixture.prepareWorkspace()
         let gate = try PreparationGate(fixture, blockedIDs: ["repo"])
@@ -68,35 +68,31 @@ struct RepositoryPreparationTests {
             let userFile: URL
             if foreign == "registered" {
                 _ = try await fixture.service.git.run(["config", "--global", "--add", "url.\(fixture.directory.appending(path: "repo.git").path).insteadOf", other], at: fixture.root)
-                #expect(await fixture.service.addRepository(.init(url: other), at: fixture.root).status == .success)
-                userFile = record.repositoryURL("other").appending(path: "README")
+                try #require(await fixture.service.addRepository(.init(url: other), at: fixture.root).status == .success)
+                userFile = record.repositoryURL("other").appending(path: "notes")
+            } else if foreign == "same-repository" {
+                try #require(await fixture.service.addRepository(.init(url: fixture.remoteURL), at: fixture.root).status == .success)
+                userFile = record.repositoryURL("repo").appending(path: "notes")
+            } else if foreign == "target-conflict" {
+                userFile = record.repositoryURL("repo")
             } else if foreign == "directory" {
                 try FileManager.default.createDirectory(at: external, withIntermediateDirectories: false)
                 userFile = external.appending(path: "notes")
             } else { userFile = external }
-            if foreign != "none", foreign != "registered" { try data.write(to: userFile) }
+            try data.write(to: userFile)
             try gate.release(start)
             let result = await operation.value
-            if foreign == "none" {
-                #expect(result.status == .success)
-                #expect(try fixture.service.store.load(fixture.root).repositories.map(\.id) == ["repo"])
-                #expect(try stagingDirectories(in: fixture).isEmpty)
+            if foreign == "target-conflict" {
+                #expect(result.status == .failed && result.items.first?.reasonCode == "path-conflict")
+                #expect(try fixture.service.store.load(fixture.root) == record)
             } else {
-                let codes = [result.reasonCode].compactMap { $0 } + result.items.compactMap(\.reasonCode)
-                #expect(result.status == .failed && codes.contains("workspace-not-empty"))
-                #expect(!PathSafety.exists(record.repositoryURL("repo")))
-                if foreign == "registered" {
-                    #expect(try fixture.service.store.load(fixture.root).repositories.map(\.id) == ["other"])
-                    #expect(try String(contentsOf: userFile, encoding: .utf8) == "hello\n")
-                    #expect(try stagingDirectories(in: fixture).isEmpty)
-                } else {
-                    #expect(try fixture.service.store.load(fixture.root) == record)
-                    #expect(try Data(contentsOf: userFile) == data)
-                    let remaining = try stagingDirectories(in: fixture).map(PathSafety.identity)
-                    let expected = [PathSafety.identity(external)]
-                    #expect(remaining == expected)
-                }
+                #expect(result.status == .success)
+                #expect(result.items.first?.status == (foreign == "same-repository" ? .skipped : .success))
+                #expect(try fixture.service.store.load(fixture.root).repositories.map(\.id) == (foreign == "registered" ? ["other", "repo"] : ["repo"]))
             }
+            #expect(try Data(contentsOf: userFile) == data)
+            let remaining = try stagingDirectories(in: fixture).map(PathSafety.identity)
+            #expect(remaining == (["file", "directory"].contains(foreign) ? [PathSafety.identity(external)] : []))
         } catch {
             operation.cancel(); try? gate.releaseAll()
             _ = await operation.value

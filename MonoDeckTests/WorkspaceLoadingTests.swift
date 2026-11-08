@@ -697,9 +697,9 @@ import SwiftUI
         let file = fixture.root.appending(path: "repositories/.user-data")
         try Data("keep me".utf8).write(to: file)
         model.presentation.resultHost = .settings
-        model.management.importWorkspace("version: 2\nrepositories: []\ngroups: {}", filename: "workspace.yaml")
+        model.management.importWorkspace("version: 1\nrepositories: []\ngroups: {}", filename: "workspace.yaml")
         await (try #require(model.operation)).value
-        #expect(model.presentation.result?.reasonCode == "workspace-not-empty" && model.presentation.resultHost == .settings)
+        #expect(model.presentation.result?.reasonCode == "invalid-workspace-configuration" && model.presentation.resultHost == .settings)
         let presentation = SettingsView(model: model).operationSheetPresentation
         #expect(presentation.wrappedValue)
 
@@ -710,7 +710,7 @@ import SwiftUI
         defer { lease.unlock() }
         let refresh = Task { await model.activate() }
         #expect(presentation.wrappedValue)
-        #expect(model.presentation.result?.reasonCode == "workspace-not-empty" && model.presentation.resultHost == .settings)
+        #expect(model.presentation.result?.reasonCode == "invalid-workspace-configuration" && model.presentation.resultHost == .settings)
         if dismissDuringReload {
             presentation.wrappedValue = false
             #expect(!presentation.wrappedValue && model.presentation.result == nil)
@@ -724,7 +724,7 @@ import SwiftUI
         #expect(try fixture.service.store.load(fixture.root).groups["missing"] != nil)
         #expect(try String(contentsOf: file, encoding: .utf8) == "keep me")
         if !dismissDuringReload {
-            #expect(model.presentation.result?.reasonCode == "workspace-not-empty" && model.presentation.resultHost == .settings)
+            #expect(model.presentation.result?.reasonCode == "invalid-workspace-configuration" && model.presentation.resultHost == .settings)
             presentation.wrappedValue = false
         }
         #expect(model.presentation.result == nil && model.presentation.resultHost == .main)

@@ -83,13 +83,12 @@ extension Git {
                 else { try PathSafety.directory(root) }
                 guard try FileManager.default.attributesOfItem(atPath: file.path)[.type] as? FileAttributeType == .typeRegular else { throw MonoDeckError("git-failed", .workspaceCommitRequiresRegularFile(path)) }
             }
-            // Check only the managed files without waiting for a repository-wide fsmonitor refresh.
-            if try await run(["-c", "core.fsmonitor=false", "ls-files", "--error-unmatch", "--"] + paths, at: root, allowFailure: true, cancellable: false).status == 0,
-               try await run(["-c", "core.fsmonitor=false", "diff", "--quiet", "HEAD", "--"] + paths, at: root, allowFailure: true, cancellable: false).status == 0 { return nil }
+            guard try await workspaceFilesNeedCommit(paths, at: root, cancellable: false) else { return nil }
+            guard try await checkedOutLocalBranchRef(at: root, cancellable: false) != nil else {
+                throw MonoDeckError("workspace-branch-required", .workspaceCommitRequiresLocalBranch)
+            }
             _ = try await run(["add", "--force", "--"] + paths, at: root, cancellable: false)
-            let diff = try await run(["diff", "--cached", "--quiet", "--"] + paths, at: root, allowFailure: true, cancellable: false)
-            if diff.status == 0 { return nil }
-            guard diff.status == 1 else { throw MonoDeckError("git-failed", .couldNotCheckWorkspaceFileChanges) }
+            guard try await workspaceFilesHaveStagedChanges(paths, at: root) else { return nil }
             let commitMessage = "\(message)\n\nAuto-committed-by: MonoDeck"
             // --only preserves unrelated staged files; hooks cannot expand this automatic commit's scope.
             _ = try await run(["-c", "core.hooksPath=/dev/null", "commit", "--only", "-m", commitMessage, "--"] + paths, at: root, cancellable: false)
@@ -97,5 +96,24 @@ extension Git {
         } catch {
             throw MonoDeckError("workspace-commit-failed", .couldNotAutomaticallyCommitWorkspaceFilesSavedResources(MonoDeckError.wrap(error).userMessage))
         }
+    }
+
+    func workspaceFilesNeedCommit(_ paths: [String], at root: URL, cancellable: Bool = true) async throws -> Bool {
+        // Check only the managed files without waiting for a repository-wide fsmonitor refresh.
+        let tracked = try await run(["-c", "core.fsmonitor=false", "ls-files", "--error-unmatch", "--"] + paths, at: root, allowFailure: true, cancellable: cancellable)
+        guard tracked.status == 0 else { return true }
+        let diff = try await run(["-c", "core.fsmonitor=false", "diff", "--quiet", "HEAD", "--"] + paths, at: root, allowFailure: true, cancellable: cancellable)
+        return diff.status != 0
+    }
+
+    func workspaceFilesHaveStagedChanges(_ paths: [String], at root: URL) async throws -> Bool {
+        let diff = try await run(["-c", "core.fsmonitor=false", "diff", "--cached", "--quiet", "--"] + paths, at: root, allowFailure: true, cancellable: false)
+        guard diff.status == 0 || diff.status == 1 else { throw MonoDeckError("git-failed", .couldNotCheckWorkspaceFileChanges) }
+        return diff.status == 1
+    }
+
+    func checkedOutLocalBranchRef(at root: URL, cancellable: Bool = true) async throws -> String? {
+        let ref = try await run(["symbolic-ref", "--quiet", "HEAD"], at: root, allowFailure: true, cancellable: cancellable)
+        return ref.status == 0 && ref.text.hasPrefix("refs/heads/") ? ref.text : nil
     }
 }

@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import Synchronization
 import Testing
 @testable import MonoDeckCore
 
@@ -155,17 +156,27 @@ struct WorkflowTests {
         #expect(result.items.last?.reasonCode == "not-processed")
         #expect(PathSafety.exists(f.root.appending(path: "worktrees/feature")))
     }
-    @Test func yamlRoundTripAndEmptyImportBoundary() async throws {
+    @Test func yamlRoundTripFromClonedWorkspaceUsesPublishedTaskBranches() async throws {
         let f = try await Fixture(template: .singleRepository); defer { f.remove() }
-        #expect(await f.service.createGroup("feature", branchName: "feature/task", repositoryIDs: ["repo"], at: f.root).status == .success)
+        try await f.prepareGroup("feature", branchName: "feature/task", repositoryIDs: ["repo"])
         try await f.prepareEmptyGroup("empty", branchName: "feature/empty")
-        let yaml = try await f.service.exportYAML(at: f.root)
-        #expect(!yaml.contains("root:")); #expect(yaml.contains("branch-name: feature/task"))
-        let rejected = await f.service.importWorkspaceYAML(yaml, at: f.root)
-        #expect(rejected.reasonCode == "workspace-not-empty")
+        var original = try f.service.store.load(f.root)
+        original.groups["feature"]?.createdAt = "2026-01-01T00:00:00Z"
+        original.repositories[0].displayNameOverride = "Shared name"
+        try f.service.store.save(original)
+        let group = original.groupURL("feature"), member = original.memberURL("feature", "repo")
+        _ = try await f.service.git.run(["commit", "--allow-empty", "-m", "group task"], at: group)
+        _ = try await f.service.git.run(["commit", "--allow-empty", "-m", "member task"], at: member)
+        _ = try await f.service.git.run(["push", f.remoteURL, "refs/heads/feature/task"], at: member)
+        let export = f.directory.appending(path: "mono-deck.yaml")
+        try await f.service.exportYAML(at: f.root, to: export)
+        let yaml = try String(contentsOf: export, encoding: .utf8)
+        #expect(!yaml.contains("root:") && !yaml.contains("created-at:"))
+        #expect(yaml.contains("branch-name: feature/task"))
         let second = f.directory.appending(path: "second")
-        try FileManager.default.createDirectory(at: second, withIntermediateDirectories: false)
-        #expect(await f.service.openWorkspace(second).status == .success)
+        _ = try await f.service.git.run(["clone", f.root.path, second.path], at: f.directory)
+        try #require(await f.service.openWorkspace(second).status == .success)
+        _ = try await f.service.git.run(["commit", "--allow-empty", "-m", "local workspace change"], at: second)
         let before = try Data(contentsOf: f.service.store.recordURL(second))
         let oldVersion = await f.service.importWorkspaceYAML("version: 1\nrepositories: []\ngroups: {}", at: second)
         #expect(oldVersion.reasonCode == "invalid-workspace-configuration" && oldVersion.items.isEmpty)
@@ -180,8 +191,10 @@ struct WorkflowTests {
         let imported = await f.service.importWorkspaceYAML(yaml, at: second)
         #expect(imported.status == .success, "\(imported.message ?? "") \(imported.items)")
         let restored = try await f.service.load(second)
+        #expect(restored.repositories == original.repositories)
         #expect(restored.groups["feature"]?.repositoryIDs == ["repo"])
         #expect(restored.groups["feature"]?.branchName == "feature/task")
+        #expect(restored.groups["feature"]?.createdAt != original.groups["feature"]?.createdAt)
         #expect(restored.groups["empty"]?.repositoryIDs == [])
         #expect(restored.groups["empty"]?.branchName == "feature/empty")
         for (path, branch) in [(restored.groupURL("feature"), "feature/task"),
@@ -189,7 +202,365 @@ struct WorkflowTests {
                                (restored.groupURL("empty"), "feature/empty")] {
             #expect(try await f.service.git.run(["symbolic-ref", "HEAD"], at: path).text == "refs/heads/\(branch)")
         }
+        #expect(try await f.service.git.oid("HEAD", at: restored.groupURL("feature")) == f.service.git.oid("HEAD", at: group))
+        #expect(try await f.service.git.oid("HEAD", at: restored.memberURL("feature", "repo")) == f.service.git.oid("HEAD", at: member))
     }
+
+    @Test(arguments: [false, true])
+    func workspaceYAMLRejectsMismatchedOrDetachedBranchWhenOriginHEADIsKnown(_ detached: Bool) async throws {
+        let f = try await Fixture(); defer { f.remove() }
+        try await f.prepareWorkspace()
+        let git = f.service.git
+        let before = try f.service.store.load(f.root)
+        let ignore = f.root.appending(path: ".gitignore")
+        let originalIgnore = try Data(contentsOf: ignore)
+        let head = try #require(await git.oid("HEAD", at: f.root))
+        _ = try await git.run(["update-ref", "refs/remotes/origin/main", head], at: f.root)
+        _ = try await git.run(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"], at: f.root)
+        _ = try await git.run(detached ? ["switch", "--detach"] : ["switch", "-c", "feature/other"], at: f.root)
+        let yaml = """
+        version: 2
+        repositories: [{url: \(f.remoteURL)}]
+        groups: {feature: {branch-name: feature/task, repository-ids: [repo]}}
+        """
+
+        let trace = f.directory.appending(path: "import-trace")
+        var runner = git.runner
+        runner.environment["GIT_TRACE"] = trace.path
+        let service = WorkspaceService(store: f.service.store, git: Git(runner: runner), trash: f.service.trashDirectory)
+        let result = await service.importWorkspaceYAML(yaml, at: f.root)
+
+        #expect(result.status == .failed && result.reasonCode == "workspace-branch-mismatch", "\(result)")
+        #expect(try f.service.store.load(f.root) == before)
+        #expect(!PathSafety.exists(before.repositoryURL("repo")))
+        #expect(!PathSafety.exists(before.groupURL("feature")))
+        #expect(try await git.oid("HEAD", at: f.root) == head)
+        #expect(try Data(contentsOf: ignore) == originalIgnore)
+        let commands = try String(contentsOf: trace, encoding: .utf8)
+        #expect(!commands.contains("built-in: git ls-remote ") && !commands.contains("built-in: git clone "))
+    }
+
+    @Test(arguments: ["local", "remote", "missing"])
+    func workspaceYAMLRequiresWorkspaceHEADOnlyForRootFallback(_ source: String) async throws {
+        let f = try await Fixture(template: .singleRepository); defer { f.remove() }
+        let git = f.service.git
+        let before = try f.service.store.load(f.root)
+        let start = try #require(await git.oid("HEAD", at: f.root))
+        switch source {
+        case "local":
+            _ = try await git.run(["update-ref", "refs/heads/feature/task", start], at: f.root)
+        case "remote":
+            _ = try await git.run(["update-ref", "refs/remotes/origin/feature/task", start], at: f.root)
+            _ = try await git.run(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/missing"], at: f.root)
+        default:
+            _ = try await git.run(["update-ref", "refs/remotes/origin/unborn", start], at: f.root)
+            _ = try await git.run(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/unborn"], at: f.root)
+        }
+        _ = try await git.run(["switch", "--orphan", "unborn"], at: f.root)
+        try #require(try await git.oid("HEAD", at: f.root) == nil)
+        let yaml = """
+        version: 2
+        repositories: [{url: \(f.remoteURL)}]
+        groups: {feature: {branch-name: feature/task, repository-ids: [repo]}}
+        """
+
+        let result = await f.service.importWorkspaceYAML(yaml, at: f.root)
+
+        if source == "missing" {
+            #expect(result.status == .failed)
+            #expect(result.items.first { $0.resource == .group("feature") }?.reasonCode == "workspace-commit-required", "\(result.items)")
+            #expect(try f.service.store.load(f.root) == before)
+            #expect(!PathSafety.exists(before.groupURL("feature")))
+        } else {
+            #expect(result.status == .success, "\(result.items)")
+            #expect(try f.service.store.load(f.root).groups["feature"]?.repositoryIDs == ["repo"])
+            #expect(try await git.oid("HEAD", at: before.groupURL("feature")) == start)
+        }
+        #expect(try await git.oid("HEAD", at: f.root) == nil)
+    }
+
+    @Test func workspaceYAMLAppendsMissingItemsAndRepeatLeavesLocalStateAlone() async throws {
+        let f = try await Fixture(template: .singleRepository); defer { f.remove() }
+        try await f.prepareGroup("existing", branchName: "local/task", repositoryIDs: ["repo"])
+        var before = try f.service.store.load(f.root)
+        before.repositories[0].displayNameOverride = "Local name"
+        try f.service.store.save(before)
+        let other = "https://mono-deck-test.invalid/other.git"
+        let remote = f.directory.appending(path: "repo.git")
+        _ = try await f.service.git.run(["config", "--global", "--add", "url.\(remote.path).insteadOf", other], at: f.root)
+        let yaml = """
+        version: 2
+        repositories:
+          - url: \(f.remoteURL)
+            display-name: Imported name
+          - url: \(other)
+        groups:
+          existing:
+            branch-name: imported/task
+            repository-ids: [other]
+          new:
+            branch-name: new
+            repository-ids: [repo, other]
+        """
+        let imported = await f.service.importWorkspaceYAML(yaml, at: f.root)
+        #expect(imported.status == .success, "\(imported.items)")
+        #expect(imported.items.first { $0.resource == .repository("repo") }?.status == .skipped)
+        #expect(imported.items.first { $0.resource == .group("existing") }?.status == .skipped)
+        #expect(!imported.items.contains { $0.resource.kind == .member && $0.resource.groupName == "existing" })
+        let saved = try f.service.store.load(f.root)
+        #expect(saved.repositories == before.repositories + [Repository(url: other)])
+        #expect(saved.groups["existing"] == before.groups["existing"])
+        #expect(saved.groups["new"]?.repositoryIDs == ["repo", "other"])
+        #expect(!PathSafety.exists(saved.memberURL("existing", "other")))
+        #expect(try await f.service.git.oid("refs/heads/imported/task", at: f.root) == nil)
+
+        let ignore = f.root.appending(path: ".gitignore")
+        let dirtyIgnore = try Data(contentsOf: ignore) + Data("# private edits\n".utf8)
+        try dirtyIgnore.write(to: ignore)
+        let head = try await f.service.git.oid("HEAD", at: f.root)
+        try FileManager.default.removeItem(at: remote)
+        let refusingWrites = WorkspaceStore(support: f.service.store.support) { _, _ in
+            throw MonoDeckError("fixture-write-failed", "A repeated import must not write the record.")
+        }
+        let service = WorkspaceService(store: refusingWrites, git: f.service.git)
+        let repeated = await service.importWorkspaceYAML(yaml, at: f.root)
+        #expect(repeated.status == .success, "\(repeated.items)")
+        #expect(Set(repeated.items.map(\.resource)) == Set([.repository("repo"), .repository("other"), .group("existing"), .group("new")]))
+        #expect(repeated.items.allSatisfy { $0.status == .skipped && $0.effects.isEmpty })
+        #expect(try f.service.store.load(f.root) == saved)
+        #expect(try Data(contentsOf: ignore) == dirtyIgnore)
+        #expect(try await f.service.git.oid("HEAD", at: f.root) == head)
+    }
+    @Test func workspaceYAMLRepositoryConflictBlocksOnlyDependentGroups() async throws {
+        let f = try await Fixture(template: .singleRepository); defer { f.remove() }
+        let conflict = "https://mono-deck-test.invalid/different/Repo.git"
+        let other = "https://mono-deck-test.invalid/other.git"
+        for url in [conflict, other] {
+            _ = try await f.service.git.run(["config", "--global", "--add", "url.\(f.directory.appending(path: "repo.git").path).insteadOf", url], at: f.root)
+        }
+        let yaml = """
+        version: 2
+        repositories:
+          - url: \(conflict)
+          - url: \(other)
+        groups:
+          blocked:
+            branch-name: blocked
+            repository-ids: [Repo]
+          independent:
+            branch-name: independent
+            repository-ids: [other]
+        """
+        let imported = await f.service.importWorkspaceYAML(yaml, at: f.root)
+        #expect(imported.status == .partialSuccess, "\(imported.items)")
+        #expect(imported.items.contains { $0.resource.kind == .repository && $0.reasonCode == "repository-conflict" })
+        #expect(imported.items.contains { $0.resource == .group("blocked") && $0.reasonCode == "not-processed" })
+        let saved = try f.service.store.load(f.root)
+        #expect(saved.repositories.map(\.url) == [f.remoteURL, other])
+        #expect(saved.groups["blocked"] == nil && !PathSafety.exists(saved.groupURL("blocked")))
+        #expect(saved.groups["independent"]?.repositoryIDs == ["other"])
+    }
+    @Test(arguments: [false, true])
+    func workspaceYAMLInterruptedGroupKeepsCompletedWorktreesAndCanRetry(_ cancelDuringCreation: Bool) async throws {
+        let f = try await Fixture(template: .singleRepository); defer { f.remove() }
+        let before = try f.service.store.load(f.root)
+        let git = f.service.git
+        let group = before.groupURL("feature")
+        let member = before.memberURL("feature", "repo")
+        let main = before.repositoryURL("repo")
+        let start = try #require(await git.oid("HEAD", at: f.root))
+        let memberResource = Resource.member(groupName: "feature", repositoryID: "repo")
+        let failingStore = WorkspaceStore(support: f.service.store.support) { data, _ in
+            let record = try JSONDecoder().decode(WorkspaceRecord.self, from: data)
+            #expect(record.groups["feature"]?.repositoryIDs == ["repo"])
+            #expect(PathSafety.exists(record.groupURL("feature")) && PathSafety.exists(record.memberURL("feature", "repo")))
+            throw MonoDeckError("fixture-write-failed", "Injected group save failure.")
+        }
+        let service = WorkspaceService(store: failingStore, git: git)
+        let yaml = """
+        version: 2
+        repositories: [{url: \(f.remoteURL)}]
+        groups:
+          feature:
+            branch-name: feature
+            repository-ids: [repo]
+        """
+        let interrupted = await Task {
+            await service.importWorkspaceYAML(yaml, at: f.root) { progress in
+                if cancelDuringCreation, progress.target == memberResource.path, progress.phase == .creating {
+                    withUnsafeCurrentTask { $0?.cancel() }
+                }
+            }
+        }.value
+        #expect(interrupted.status == (cancelDuringCreation ? .cancelled : .partialSuccess), "\(interrupted.items)")
+        let rootItem = try #require(interrupted.items.first { $0.resource == .group("feature") })
+        let memberItem = try #require(interrupted.items.first { $0.resource == memberResource })
+        #expect(rootItem.status == (cancelDuringCreation ? .success : .failed))
+        #expect(rootItem.reasonCode == (cancelDuringCreation ? nil : "workspace-record-write-failed"))
+        #expect(rootItem.effects.contains(.init("create-worktree", group.path)))
+        #expect(rootItem.effects.contains(.init("create-branch", "feature")))
+        #expect(!rootItem.effects.contains { $0.action == "save-workspace-record" })
+        #expect(memberItem.status == (cancelDuringCreation ? .cancelled : .success))
+        if cancelDuringCreation {
+            #expect(memberItem.reasonCode == "cancelled" && memberItem.effects.isEmpty)
+        } else {
+            #expect(memberItem.effects.contains(.init("create-worktree", member.path)))
+            #expect(memberItem.effects.contains(.init("create-branch", "feature")))
+        }
+        #expect(try f.service.store.load(f.root) == before)
+        #expect(PathSafety.exists(group))
+        #expect(PathSafety.exists(member) == !cancelDuringCreation)
+        #expect(try await git.registrations(at: f.root).count == 2)
+        #expect(try await git.registrations(at: main).count == (cancelDuringCreation ? 1 : 2))
+        #expect(try await git.oid("refs/heads/feature", at: f.root) == start)
+        let memberBranch = try await git.oid("refs/heads/feature", at: main)
+        #expect((memberBranch != nil) == !cancelDuringCreation)
+
+        let retried = await f.service.importWorkspaceYAML(yaml, at: f.root)
+        #expect(retried.status == .success, "\(retried.items)")
+        #expect(try f.service.store.load(f.root).groups["feature"]?.repositoryIDs == ["repo"])
+        #expect(PathSafety.exists(member))
+        let created = retried.items.flatMap(\.effects).filter { $0.action == "create-worktree" }
+        #expect(created.map(\.target) == (cancelDuringCreation ? [member.path] : []))
+    }
+
+    @Test func workspaceYAMLFinishesTrackingBeforeRespondingToCancellation() async throws {
+        let f = try await Fixture(template: .singleRepository); defer { f.remove() }
+        let record = try f.service.store.load(f.root)
+        let git = f.service.git
+        _ = try await git.run(["update-ref", "refs/remotes/origin/feature/task", "HEAD"], at: f.root)
+        let config = f.root.appending(path: ".git/config")
+        let operation = Mutex<Task<OperationResult, Never>?>(nil)
+        let service = f.service.withDiagnostics(.init { event in
+            guard event.name == "command.git.config",
+                  let contents = try? String(contentsOf: config, encoding: .utf8),
+                  contents.contains("[branch \"feature/task\"]"),
+                  !contents.contains("merge = refs/heads/feature/task") else { return }
+            // The command runner reports the write before resuming the import task.
+            operation.withLock { $0?.cancel() }
+        })
+        let yaml = """
+        version: 2
+        repositories: [{url: \(f.remoteURL)}]
+        groups: {feature: {branch-name: feature/task, repository-ids: [repo]}}
+        """
+        let task = operation.withLock { operation in
+            let task = Task { await service.importWorkspaceYAML(yaml, at: f.root) }
+            operation = task
+            return task
+        }
+
+        let result = await task.value
+
+        #expect(result.status == .cancelled, "\(result.items)")
+        #expect(result.items.first { $0.resource == .group("feature") }?.reasonCode == "cancelled")
+        #expect(try await git.run(["config", "--local", "--get", "branch.feature/task.remote"], at: f.root).text == "origin")
+        #expect(try await git.run(["config", "--local", "--get", "branch.feature/task.merge"], at: f.root).text == "refs/heads/feature/task")
+        #expect(try f.service.store.load(f.root) == record)
+        #expect(PathSafety.exists(record.groupURL("feature")))
+        #expect(!PathSafety.exists(record.memberURL("feature", "repo")))
+    }
+
+    @Test(arguments: [false, true])
+    func workspaceYAMLRetryRegistersRetainedWorktrees(_ removeMemberBeforeRetry: Bool) async throws {
+        let f = try await Fixture(template: .singleRepository); defer { f.remove() }
+        let record = try f.service.store.load(f.root)
+        let recordURL = f.service.store.recordURL(f.root)
+        let originalRecord = try Data(contentsOf: recordURL)
+        let group = record.groupURL("feature")
+        let member = record.memberURL("feature", "repo")
+        let main = record.repositoryURL("repo")
+        let git = f.service.git
+        let failingStore = WorkspaceStore(support: f.service.store.support) { _, url in
+            try Data("invalid".utf8).write(to: url)
+            throw MonoDeckError("fixture-write-failed", "Injected unknown group save outcome.")
+        }
+        let service = WorkspaceService(store: failingStore, git: git)
+        let yaml = """
+        version: 2
+        repositories: [{url: \(f.remoteURL)}]
+        groups: {feature: {branch-name: feature/task, repository-ids: [repo]}}
+        """
+        let interrupted = await service.importWorkspaceYAML(yaml, at: f.root)
+        let rootItem = try #require(interrupted.items.first { $0.resource == .group("feature") })
+        #expect(rootItem.reasonCode == "save-outcome-unknown")
+        #expect(rootItem.effects.contains { $0.action == "save-workspace-record" && $0.state == "unknown" })
+        let memberItem = try #require(interrupted.items.first { $0.resource == .member(groupName: "feature", repositoryID: "repo") })
+        #expect(memberItem.status == .success)
+        #expect(memberItem.effects.contains { $0.action == "create-worktree" && $0.state == "applied" })
+        try #require(PathSafety.exists(group) && PathSafety.exists(member))
+        try originalRecord.write(to: recordURL, options: .atomic)
+
+        let note = Data("keep local changes\n".utf8)
+        let groupNote = group.appending(path: "notes.txt")
+        let memberNote = member.appending(path: "notes.txt")
+        try note.write(to: groupNote)
+        if removeMemberBeforeRetry {
+            _ = try await git.run(["worktree", "remove", "--", member.path], at: main)
+        } else {
+            try note.write(to: memberNote)
+            _ = try await git.run(["add", "--", "notes.txt"], at: member)
+        }
+        let rootLink = try Data(contentsOf: group.appending(path: ".git"))
+        let memberCommit = try #require(await git.oid("refs/heads/feature/task", at: main))
+
+        let retried = await f.service.importWorkspaceYAML(yaml, at: f.root)
+        #expect(retried.status == .success, "\(retried.items)")
+        let created = retried.items.flatMap(\.effects).filter { $0.action == "create-worktree" }
+        #expect(created.count == (removeMemberBeforeRetry ? 1 : 0))
+        #expect(try f.service.store.load(f.root).groups["feature"]?.repositoryIDs == ["repo"])
+        #expect(try f.service.store.load(f.root).groups["feature"]?.branchName == "feature/task")
+        #expect(try Data(contentsOf: group.appending(path: ".git")) == rootLink)
+        #expect(try Data(contentsOf: groupNote) == note)
+        #expect(try await git.oid("HEAD", at: member) == memberCommit)
+        if !removeMemberBeforeRetry {
+            #expect(try Data(contentsOf: memberNote) == note)
+            #expect(try await git.run(["show", ":notes.txt"], at: member).stdout == note)
+        }
+    }
+
+    @Test(arguments: [false, true])
+    func workspaceYAMLSkipsGroupWithMismatchedWorktree(_ wrongRepository: Bool) async throws {
+        let f = try await Fixture(template: .singleRepository); defer { f.remove() }
+        let git = f.service.git
+        let other = "https://mono-deck-test.invalid/other.git"
+        let remote = f.directory.appending(path: "repo.git")
+        _ = try await git.run(["config", "--global", "--add", "url.\(remote.path).insteadOf", other], at: f.root)
+        try #require(await f.service.addRepository(.init(url: other), at: f.root).status == .success)
+        let record = try f.service.store.load(f.root)
+        try await f.prepareEmptyGroup("feature", branchName: "feature/task")
+        try f.service.store.save(record)
+        let member = record.memberURL("feature", "repo")
+        let expectedMain = record.repositoryURL("repo")
+        let owner = wrongRepository ? f.directory.appending(path: "source") : expectedMain
+        let actualBranch = wrongRepository ? "feature/task" : "different/task"
+        if wrongRepository {
+            _ = try await git.run(["config", "remote.origin.url", f.remoteURL], at: owner)
+        }
+        _ = try await git.run(["worktree", "add", "-b", actualBranch, member.path, "HEAD"], at: owner)
+        let note = member.appending(path: "notes.txt")
+        let data = Data("keep occupied worktree\n".utf8)
+        try data.write(to: note)
+        let yaml = """
+        version: 2
+        repositories: [{url: \(f.remoteURL)}, {url: \(other)}]
+        groups:
+          feature: {branch-name: feature/task, repository-ids: [other, repo]}
+          independent: {branch-name: independent, repository-ids: []}
+        """
+
+        let imported = await f.service.importWorkspaceYAML(yaml, at: f.root)
+        let skipped = try #require(imported.items.first { $0.resource == .member(groupName: "feature", repositoryID: "repo") })
+        #expect(skipped.status == .skipped && skipped.reasonCode == "import-worktree-mismatch", "\(imported.items)")
+        let saved = try f.service.store.load(f.root)
+        #expect(saved.groups["feature"] == nil)
+        #expect(saved.groups["independent"]?.repositoryIDs == [])
+        #expect(!PathSafety.exists(record.memberURL("feature", "other")))
+        #expect(try await git.oid("refs/heads/feature/task", at: record.repositoryURL("other")) == nil)
+        #expect(try await git.run(["symbolic-ref", "HEAD"], at: member).text == "refs/heads/\(actualBranch)")
+        #expect(try Data(contentsOf: note) == data)
+    }
+
     @Test func yamlAppendDeduplicatesAndDoesNotChangeName() async throws {
         let f = try await Fixture(template: .singleRepository); defer { f.remove() }
         var record = try f.service.store.load(f.root)

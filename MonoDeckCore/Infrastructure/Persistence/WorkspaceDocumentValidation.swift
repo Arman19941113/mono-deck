@@ -4,19 +4,19 @@ import Yams
 public enum WorkspaceDocumentValidation {
     public static func validateRecordDocument(_ text: String) throws {
         do {
-            try validateDocument(text, rootFields: ["version", "root", "repositories", "groups"],
+            try validateDocument(text, rootFields: ["version", "root", "repositories", "groups"], groupFields: ["branch-name", "created-at", "repository-ids"],
                                  invalidDocument: .expectedOneWorkspaceRecordDocument, invalidField: .unknownOrDuplicateWorkspaceRecordField)
         } catch { throw MonoDeckError.wrap(error, code: "invalid-workspace-record") }
     }
 
     public static func validateConfigurationDocument(_ text: String) throws {
         do {
-            try validateDocument(text, rootFields: ["version", "repositories", "groups"], code: "invalid-workspace-configuration",
+            try validateDocument(text, rootFields: ["version", "repositories", "groups"], groupFields: ["branch-name", "repository-ids"], code: "invalid-workspace-configuration",
                                  invalidDocument: .expectedOneConfigurationDocument, invalidField: .unknownOrDuplicateConfigurationField)
         } catch { throw MonoDeckError.wrap(error, code: "invalid-workspace-configuration") }
     }
 
-    private static func validateDocument(_ text: String, rootFields: Set<String>, code: String = "invalid-workspace-record", invalidDocument: UserMessage, invalidField: UserMessage) throws {
+    private static func validateDocument(_ text: String, rootFields: Set<String>, groupFields: Set<String>, code: String = "invalid-workspace-record", invalidDocument: UserMessage, invalidField: UserMessage) throws {
         guard let mapping = try Yams.compose(yaml: text)?.mapping else { throw MonoDeckError(code, invalidDocument) }
         try keys(mapping, allowed: rootFields, code: code, invalidField: invalidField)
         for pair in mapping {
@@ -32,7 +32,7 @@ public enum WorkspaceDocumentValidation {
                 try keys(groups, allowed: nil, code: code, invalidField: invalidField)
                 for group in groups {
                     guard let map = group.value.mapping else { throw MonoDeckError(code, .groupMustBeMapping) }
-                    try keys(map, allowed: ["branch-name", "created-at", "repository-ids"], code: code, invalidField: invalidField)
+                    try keys(map, allowed: groupFields, code: code, invalidField: invalidField)
                 }
             }
         }

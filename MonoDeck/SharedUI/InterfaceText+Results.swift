@@ -3,7 +3,10 @@ import MonoDeckCore
 
 extension InterfaceText {
     func resultTitle(_ result: OperationResult) -> String {
-        if result.reasonCode == "workspace-not-empty" { return string(.uiCanTImportIntoWorkspace) }
+        if result.command == "workspace.configuration.import", result.status == .success,
+           result.items.allSatisfy({ $0.status == .skipped && $0.data?["disposition"] == "already-exists" }) {
+            return string(.resultWorkspaceImportSkipped)
+        }
         if result.command == "repo.add", result.status == .failed,
            result.items.first?.data?["disposition"] == "added" {
             return string(.uiRepositoryAddedWithIssue)

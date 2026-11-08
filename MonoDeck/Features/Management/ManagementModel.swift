@@ -207,7 +207,7 @@ final class ManagementModel {
             if outcome.command == "repo.update" {
                 presentation.result = text.resultDisplayItems(outcome).isEmpty ? nil : outcome
             } else if outcome.status == .success && !presentation.quitPending {
-                presentation.result = outcome.hasWarnings ? outcome : nil
+                presentation.result = outcome.hasWarnings || outcome.command == "workspace.configuration.import" ? outcome : nil
                 if presentation.result == nil, presentation.resultHost == .main, !isGroupOperation {
                     presentation.completionMessage = text.string(.uiCompleted)
                     Task { try? await Task.sleep(for: .seconds(3)); if operationGeneration == operationToken { presentation.completionMessage = nil } }

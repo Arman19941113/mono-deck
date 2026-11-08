@@ -116,10 +116,11 @@ import Testing
         }
     }
 
-    @Test func settingsImportDismissesOnlySuccessOrCancellationWithoutEffects() async throws {
+    @Test func settingsImportShowsSuccessAndDismissesCancellationWithoutEffects() async throws {
         try await withModel { model in
             for (status, effects, quitting, presentsResult) in [
-                ("success", true, false, false), ("failed", false, false, true),
+                ("success", true, false, true), ("success", false, false, true),
+                ("failed", false, false, true),
                 ("partial-success", true, false, true),
                 ("cancelled", false, false, false), ("cancelled", true, false, true),
                 ("success", true, true, true)
@@ -128,6 +129,11 @@ import Testing
                 model.management.run { _, root, _ in
                     var item = ItemResult(.repository("repo"), status: OperationStatus(rawValue: status)!)
                     if effects { item.effects = [.init("update-ignore", root.appending(path: ".gitignore").path)] }
+                    if status == "success", !effects {
+                        item.status = .skipped
+                        item.reasonCode = "already-exists"
+                        item.data = ["disposition": "already-exists"]
+                    }
                     return OperationResult(command: "workspace.configuration.import", workspace: root.path, status: OperationStatus(rawValue: status)!, items: [item])
                 }
                 #expect(model.busy && model.presentation.resultHost == .settings)
@@ -137,6 +143,10 @@ import Testing
                 #expect(!model.busy)
                 #expect((model.presentation.result != nil) == presentsResult)
                 #expect(model.presentation.resultHost == (presentsResult ? .settings : .main))
+                if status == "success", !effects {
+                    let result = try #require(model.presentation.result)
+                    #expect(model.text.resultTitle(result) == model.text.string(.resultWorkspaceImportSkipped))
+                }
                 #expect(model.presentation.completionMessage == nil)
                 model.presentation.quitPending = false
                 model.presentation.dismissResult()

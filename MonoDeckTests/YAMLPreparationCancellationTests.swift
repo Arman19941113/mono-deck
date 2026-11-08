@@ -3,7 +3,7 @@ import Testing
 @testable import MonoDeckCore
 
 struct YAMLPreparationCancellationTests {
-    @Test(arguments: ["cancelled", "git-failed", "workspace-not-empty"], [false, true])
+    @Test(arguments: ["cancelled", "git-failed"], [false, true])
     func unpublishedPreparationKeepsTheWorkspaceAndOriginalFailure(_ failure: String, _ cleanupFails: Bool) async throws {
         let fixture = try await Fixture(); defer { fixture.remove() }
         try await fixture.prepareWorkspace()
@@ -18,8 +18,6 @@ struct YAMLPreparationCancellationTests {
             if cleanupFails, path.lastPathComponent == "repo" { throw MonoDeckError("fixture-trash-failed", "Injected preparation cleanup failure.") }
             return try fixture.service.trashDirectory(path)
         })
-        let foreign = fixture.root.appending(path: "repositories/user-notes")
-        let foreignData = Data("User data".utf8)
         let yaml = """
         version: 2
         repositories:
@@ -28,7 +26,6 @@ struct YAMLPreparationCancellationTests {
         groups:
           feature:
             branch-name: feature
-            created-at: '2026-01-01T00:00:00Z'
             repository-ids: [repo, other]
         """
         let outcome = await Task {
@@ -39,8 +36,7 @@ struct YAMLPreparationCancellationTests {
                     #expect(!PathSafety.exists(fixture.root.appending(path: "repositories/repo")))
                     #expect(!PathSafety.exists(fixture.root.appending(path: "repositories/other")))
                     if failure == "cancelled" { withUnsafeCurrentTask { $0?.cancel() } }
-                    else if failure == "git-failed" { try? FileManager.default.removeItem(at: fixture.directory.appending(path: "repo.git")) }
-                    else { try? foreignData.write(to: foreign) }
+                    else { try? FileManager.default.removeItem(at: fixture.directory.appending(path: "repo.git")) }
                 }
             }
         }.value
@@ -49,10 +45,8 @@ struct YAMLPreparationCancellationTests {
         #expect(outcome.status == (cancelled ? .cancelled : .failed))
         #expect(outcome.exitCode == (cancelled ? 130 : 1))
         #expect(!outcome.items.contains { $0.status == .success })
-        if failure != "workspace-not-empty" {
-            let interrupted = try #require(outcome.items.first { $0.resource == .repository("other") })
-            #expect(interrupted.reasonCode == failure && interrupted.status == (failure == "cancelled" ? .cancelled : .failed))
-        }
+        let interrupted = try #require(outcome.items.first { $0.resource == .repository("other") })
+        #expect(interrupted.reasonCode == failure && interrupted.status == (failure == "cancelled" ? .cancelled : .failed))
         #expect(try Data(contentsOf: recordURL) == originalRecord)
         #expect(try Data(contentsOf: ignore) == originalIgnore)
         #expect(try await fixture.service.git.oid("HEAD", at: fixture.root) == originalHEAD)
@@ -71,11 +65,10 @@ struct YAMLPreparationCancellationTests {
         } else {
             let unpublished = try #require(outcome.items.first { $0.resource == .repository("repo") })
             #expect(unpublished.reasonCode == "not-processed" && unpublished.effects.isEmpty)
-            #expect(remaining.map(PathSafety.identity) == (failure == "workspace-not-empty" ? [PathSafety.identity(foreign)] : []))
+            #expect(remaining.isEmpty)
             #expect(outcome.items.allSatisfy { $0.effects.isEmpty })
             #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.root.appending(path: "worktrees").path).isEmpty)
         }
-        if failure == "workspace-not-empty" { #expect(try Data(contentsOf: foreign) == foreignData) }
         let lease = try fixture.service.store.tryLock(fixture.root); lease.unlock()
     }
 }

@@ -25,6 +25,35 @@ struct WorkspaceCommitTests {
     }
 
     @Test(arguments: [false, true])
+    func automaticWorkspaceCommitRequiresLocalBranch(_ remoteAlias: Bool) async throws {
+        let f = try await Fixture(template: .emptyWorkspace); defer { f.remove() }
+        let git = f.service.git
+        let head = try #require(await git.oid("HEAD", at: f.root))
+        if remoteAlias {
+            _ = try await git.run(["update-ref", "refs/remotes/origin/main", head], at: f.root)
+            _ = try await git.run(["symbolic-ref", "refs/heads/alias", "refs/remotes/origin/main"], at: f.root)
+            _ = try await git.run(["symbolic-ref", "HEAD", "refs/heads/alias"], at: f.root)
+        } else {
+            _ = try await git.run(["switch", "--detach"], at: f.root)
+        }
+        #expect(await f.service.openWorkspace(f.root).status == .success)
+
+        let ignore = f.root.appending(path: ".gitignore")
+        let staged = try Data(contentsOf: ignore) + Data("# staged edit\n".utf8)
+        try staged.write(to: ignore)
+        _ = try await git.run(["add", "--", ".gitignore"], at: f.root)
+        let working = staged + Data("# unstaged edit\n".utf8)
+        try working.write(to: ignore)
+
+        let result = await f.service.openWorkspace(f.root)
+
+        #expect(result.status == .failed && result.items.first?.reasonCode == "workspace-commit-failed", "\(result.items)")
+        #expect(try await git.oid("HEAD", at: f.root) == head)
+        #expect(try await git.run(["show", ":.gitignore"], at: f.root).stdout == staged)
+        #expect(try Data(contentsOf: ignore) == working)
+    }
+
+    @Test(arguments: [false, true])
     func initializationCommitsSkillAndIgnoreAndPreservesOtherStaging(_ existingCommit: Bool) async throws {
         let f = try await Fixture(); defer { f.remove() }
         _ = try await f.service.git.run(["init"], at: f.root)
@@ -303,11 +332,65 @@ struct WorkspaceCommitTests {
         #expect(try await f.service.git.changes(at: record.groupURL("feature")).isEmpty)
     }
 
-    @Test func workspaceImportCommitFailureKeepsRepositoriesAndSkipsGroups() async throws {
+    enum ImportIgnoreState: CaseIterable {
+        case missingRule, stagedRule, committedRule
+    }
+
+    @Test(arguments: ImportIgnoreState.allCases)
+    func workspaceImportRequiresLocalBranchOnlyWhenIgnoreNeedsCommit(_ ignoreState: ImportIgnoreState) async throws {
         let f = try await Fixture(); defer { f.remove() }
         try await f.prepareWorkspace()
+        let git = f.service.git
+        if ignoreState != .missingRule {
+            try #require(await git.ensureIgnore(["repo"], at: f.root))
+            if ignoreState == .committedRule { try await f.commitWorkspace() }
+            else { _ = try await git.run(["add", "--", ".gitignore"], at: f.root) }
+        }
+        let branch = try await git.run(["symbolic-ref", "--short", "HEAD"], at: f.root).text
+        let head = try await git.oid("HEAD", at: f.root)
+        _ = try await git.run(["switch", "--detach"], at: f.root)
+        let before = try f.service.store.load(f.root)
+        let ignore = f.root.appending(path: ".gitignore")
+        let originalIgnore = try Data(contentsOf: ignore)
+        let originalStatus = try await git.run(["status", "--porcelain"], at: f.root).stdout
+        let repositories = before.repositoryURL("repo").deletingLastPathComponent()
+        let originalEntries = try FileManager.default.contentsOfDirectory(atPath: repositories.path)
+        let yaml = workspaceYAML(f)
+
+        let result = await f.service.importWorkspaceYAML(yaml, at: f.root)
+
+        if ignoreState == .committedRule {
+            #expect(result.status == .success, "\(result)")
+            #expect(try await git.oid("HEAD", at: f.root) == head)
+        } else {
+            #expect(result.status == .failed, "\(result)")
+            #expect(result.reasonCode == "workspace-branch-required" || result.items.contains { $0.reasonCode == "workspace-branch-required" })
+            #expect(try f.service.store.load(f.root) == before)
+            #expect(try Set(FileManager.default.contentsOfDirectory(atPath: repositories.path)) == Set(originalEntries))
+            #expect(!PathSafety.exists(before.groupURL("feature")))
+            #expect(try Data(contentsOf: ignore) == originalIgnore)
+            #expect(try await git.run(["status", "--porcelain"], at: f.root).stdout == originalStatus)
+            #expect(try await git.oid("HEAD", at: f.root) == head)
+
+            _ = try await git.run(["switch", branch], at: f.root)
+            let retried = await f.service.importWorkspaceYAML(yaml, at: f.root)
+            #expect(retried.status == .success, "\(retried)")
+            #expect(try await changedPaths(f) == [".gitignore"])
+            #expect(try await git.oid("HEAD", at: f.root) != head)
+        }
+        let record = try f.service.store.load(f.root)
+        #expect(record.repositories.map(\.id) == ["repo"])
+        #expect(record.groups["feature"]?.repositoryIDs == ["repo"])
+        #expect(try await git.run(["status", "--porcelain"], at: f.root).stdout.isEmpty)
+    }
+
+    @Test func workspaceImportCommitFailureKeepsRepositoriesAndRetryCommitsBeforeGroups() async throws {
+        let f = try await Fixture(); defer { f.remove() }
+        try await f.prepareWorkspace()
+        let head = try await f.service.git.oid("HEAD", at: f.root)
         try await failSigning(f)
-        let result = await f.service.importWorkspaceYAML(workspaceYAML(f), at: f.root)
+        let yaml = workspaceYAML(f)
+        let result = await f.service.importWorkspaceYAML(yaml, at: f.root)
         #expect(result.status == .partialSuccess)
         #expect(result.items.contains { $0.resource.kind == .workspace && $0.reasonCode == "workspace-commit-failed" })
         #expect(result.items.filter { [.group, .member].contains($0.resource.kind) }.allSatisfy { $0.reasonCode == "not-processed" })
@@ -315,6 +398,30 @@ struct WorkspaceCommitTests {
         #expect(try f.service.store.load(f.root).groups.isEmpty)
         #expect(!PathSafety.exists(f.root.appending(path: "worktrees/feature")))
         #expect(try String(contentsOf: f.root.appending(path: ".gitignore"), encoding: .utf8).contains("/repo/"))
+        #expect(try await f.service.git.oid("HEAD", at: f.root) == head)
+
+        _ = try await f.service.git.run(["config", "commit.gpgSign", "false"], at: f.root)
+        let note = Data("keep this staged\n".utf8)
+        try note.write(to: f.root.appending(path: "notes.txt"))
+        _ = try await f.service.git.run(["add", "--", "notes.txt"], at: f.root)
+        let ignore = f.root.appending(path: ".gitignore")
+        let ignoreWithManualEdit = try Data(contentsOf: ignore) + Data("# private edits\n".utf8)
+        try ignoreWithManualEdit.write(to: ignore)
+        let service = WorkspaceService(store: f.service.store, git: f.service.git)
+        let retried = await service.importWorkspaceYAML(yaml, at: f.root)
+        #expect(retried.status == .success, "\(retried.items)")
+        #expect(retried.items.first?.data?["disposition"] == "already-exists")
+        #expect(retried.items.first?.effects.isEmpty == true)
+        let commits = retried.items.flatMap(\.effects).filter { $0.action == "commit-workspace-files" }
+        #expect(commits.count == 1)
+        #expect(try await changedPaths(f) == [".gitignore"])
+        #expect(try await f.service.git.run(["show", "HEAD:.gitignore"], at: f.root).stdout == ignoreWithManualEdit)
+        #expect(try await f.service.git.run(["show", ":notes.txt"], at: f.root).stdout == note)
+        let record = try f.service.store.load(f.root)
+        #expect(record.groups["feature"]?.repositoryIDs == ["repo"])
+        let committed = try await f.service.git.oid("HEAD", at: f.root)
+        #expect(committed != head)
+        #expect(try await f.service.git.oid("HEAD", at: record.groupURL("feature")) == committed)
     }
 
     @Test(arguments: [false, true])
@@ -393,7 +500,6 @@ struct WorkspaceCommitTests {
         \(other.map { "  - url: \($0)\n" } ?? "")groups:
           feature:
             branch-name: feature
-            created-at: "2026-10-10T00:00:00Z"
             repository-ids: [repo\(other == nil ? "" : ", other")]
         """
     }

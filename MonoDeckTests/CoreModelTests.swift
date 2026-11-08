@@ -6,7 +6,7 @@ struct CoreModelTests {
     @Test func legacyWorkspaceFieldsAndVersionsAreRejected() throws {
         for configuration in [
             "version: 2\nrepositories: [{url: https://example.test/repo.git, name: Label}]\ngroups: {}",
-            "version: 2\nrepositories: []\ngroups: {feature: {created-at: '2026-11-05T00:00:00Z', repositories: []}}",
+            "version: 2\nrepositories: []\ngroups: {feature: {branch-name: feature, created-at: '2026-11-05T00:00:00Z', repository-ids: []}}",
             "version: 2\nrepositories: ["
         ] {
             do { try WorkspaceDocumentValidation.validateConfigurationDocument(configuration); Issue.record("Expected configuration validation to fail.") }

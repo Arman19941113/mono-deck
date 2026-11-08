@@ -1908,19 +1908,53 @@
         }
       }
     },
-    "message.importRequiresEmptyWorkspaceChooseAnotherWorkspaceIn": {
+    "message.importedBranchUsesFallback": {
       "extractionState": "manual",
       "localizations": {
         "en-US": {
           "stringUnit": {
             "state": "translated",
-            "value": "Import requires an empty workspace. Choose another workspace in Settings. Existing files and configuration were not changed."
+            "value": "Created the branch from %1$@ because no local or remote-tracking branch matched."
           }
         },
         "zh-Hans-CN": {
           "stringUnit": {
             "state": "translated",
-            "value": "导入需要空工作区，请在设置中选择其他工作区。现有文件和配置未被修改。"
+            "value": "未找到同名本地分支或远端跟踪分支，已从 %1$@ 创建。"
+          }
+        }
+      }
+    },
+    "message.importedWorktreeDoesNotMatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kept %1$@ and skipped the group because the path could not be verified as a worktree of the expected repository on branch %2$@."
+          }
+        },
+        "zh-Hans-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法确认 %1$@ 是目标仓库中检出 %2$@ 的工作树。已保留该路径并跳过分组。"
+          }
+        }
+      }
+    },
+    "message.importedWorktreeReused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reused the existing worktree for this group."
+          }
+        },
+        "zh-Hans-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此分组已复用现有工作树。"
           }
         }
       }
@@ -3302,6 +3336,23 @@
         }
       }
     },
+    "message.workspaceCommitRequiresLocalBranch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic commits of workspace files require a checked-out local branch. Switch to or create a local branch, then retry."
+          }
+        },
+        "zh-Hans-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动提交工作区文件需要检出本地分支。请切换或创建本地分支后重试。"
+          }
+        }
+      }
+    },
     "message.workspaceCommitRequiresRegularFile": {
       "extractionState": "manual",
       "localizations": {
@@ -3315,6 +3366,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "工作区提交要求目标是普通文件：%1$@"
+          }
+        }
+      }
+    },
+    "message.workspaceImportRepositoryChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository %1$@ changed while preparing the import. Retry the import."
+          }
+        },
+        "zh-Hans-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仓库 %1$@ 在准备导入期间发生变化，请重新导入。"
+          }
+        }
+      }
+    },
+    "message.workspaceImportRequiresBranch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch the workspace to branch %1$@ before importing the workspace configuration."
+          }
+        },
+        "zh-Hans-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在工作区切换到分支「%1$@」，再导入工作区配置。"
           }
         }
       }
@@ -4685,13 +4770,13 @@
         "en-US": {
           "stringUnit": {
             "state": "translated",
-            "value": "Workspace configuration import skipped"
+            "value": "No workspace configuration changes needed"
           }
         },
         "zh-Hans-CN": {
           "stringUnit": {
             "state": "translated",
-            "value": "已跳过导入工作区配置"
+            "value": "工作区配置无需变更"
           }
         }
       }
@@ -5167,23 +5252,6 @@
         }
       }
     },
-    "ui.canTImportIntoWorkspace": {
-      "extractionState": "manual",
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Can’t import configuration into this workspace"
-          }
-        },
-        "zh-Hans-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法向此工作区导入配置"
-          }
-        }
-      }
-    },
     "ui.canTOpen": {
       "extractionState": "manual",
       "localizations": {
@@ -5469,23 +5537,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "重新选择…"
-          }
-        }
-      }
-    },
-    "ui.chooseAnotherWorkspaceInSettingsThenTryAgain": {
-      "extractionState": "manual",
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Choose another workspace in Settings, then try again. Your files and configuration have not been changed."
-          }
-        },
-        "zh-Hans-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "请在设置中选择其他工作区后重试。你的文件和配置未被修改。"
           }
         }
       }
@@ -9136,23 +9187,6 @@
         }
       }
     },
-    "ui.workspace2": {
-      "extractionState": "manual",
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Workspace: "
-          }
-        },
-        "zh-Hans-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "工作区："
-          }
-        }
-      }
-    },
     "ui.workspaceChangeCancelled": {
       "extractionState": "manual",
       "localizations": {
@@ -9200,23 +9234,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "工作区 HEAD"
-          }
-        }
-      }
-    },
-    "ui.workspaceMustHaveNoRegisteredRepositoriesOrWorktree": {
-      "extractionState": "manual",
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The workspace must have no registered repositories or worktree groups, and no content in its repositories or worktrees folders."
-          }
-        },
-        "zh-Hans-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "工作区不能包含已登记的仓库或工作树分组，repositories 和 worktrees 目录也必须为空。"
           }
         }
       }

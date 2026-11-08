@@ -1,10 +1,16 @@
 import Foundation
 import Yams
 
-private struct WorkspaceExport: Codable {
+private struct WorkspaceConfiguration: Codable {
+    struct Group: Codable {
+        var branchName: String
+        var repositoryIDs: [String]
+        enum CodingKeys: String, CodingKey { case branchName = "branch-name", repositoryIDs = "repository-ids" }
+    }
+
     var version: Int
     var repositories: [Repository]
-    var groups: [String: WorktreeGroup]
+    var groups: [String: Group]
 }
 
 extension WorkspaceService {
@@ -15,7 +21,10 @@ extension WorkspaceService {
     }
     public func exportYAML(at root: URL) async throws -> String {
         let record = try await read(root)
-        return try YAMLEncoder().encode(WorkspaceExport(version: 2, repositories: record.repositories, groups: record.groups))
+        let groups = record.groups.mapValues { WorkspaceConfiguration.Group(branchName: $0.branchName, repositoryIDs: $0.repositoryIDs) }
+        let encoder = YAMLEncoder()
+        encoder.options.sortKeys = true
+        return try encoder.encode(WorkspaceConfiguration(version: 2, repositories: record.repositories, groups: groups))
     }
     public func importRepositories(_ urls: [String], at root: URL, progress: ProgressHandler = { _ in }) async -> OperationResult {
         var result = OperationResult(command: "repo.import", workspace: root.path)
@@ -86,19 +95,14 @@ extension WorkspaceService {
         var result = OperationResult(command: "workspace.configuration.import", workspace: root.path)
         var desired = WorkspaceRecord(root: root.path)
         var staging: RepositoryStaging?
+        var plannedItems: [Resource: ItemResult] = [:]
         var prepared: [PreparedRepository] = []
         do {
-            try WorkspaceDocumentValidation.validateConfigurationDocument(text)
-            let document = try YAMLDecoder().decode(WorkspaceExport.self, from: text)
-            desired.version = document.version; desired.repositories = document.repositories; desired.groups = document.groups
-            do { try store.validate(desired) }
-            catch let failure as MonoDeckError where failure.code == "invalid-workspace-record" {
-                throw MonoDeckError("invalid-workspace-configuration", failure.userMessage)
-            }
-            staging = try await beginWorkspaceImport(desired, at: root)
+            desired = try decodeWorkspaceConfiguration(text, at: root)
+            (staging, plannedItems) = try await beginWorkspaceImport(desired)
             var failure: ItemResult?
             if let staging {
-                for repo in desired.repositories {
+                for repo in desired.repositories where plannedItems[.repository(repo.id)] == nil {
                     progress(.init(repo.id, .checkingRepository, total: desired.repositories.count))
                     switch await prepareRepository(repo, in: staging, reportCleanupEffects: false, progress: progress) {
                     case .ready(let repository): prepared.append(repository)
@@ -108,15 +112,14 @@ extension WorkspaceService {
                 }
             }
             if let failure {
-                result.items = pendingWorkspaceImportItems(desired)
-                result.items[prepared.count] = failure
-                result.summarize(cancelled: failure.status == .cancelled || Task.isCancelled)
+                plannedItems[failure.resource] = failure
+                result.items = pendingWorkspaceImportItems(desired, known: plannedItems)
             } else {
                 result = try await publishWorkspaceImport(desired, prepared: prepared, staging: staging, progress: progress)
             }
         } catch {
             result = .init(command: result.command, workspace: root.path, status: .failed, error: .wrap(error, code: "invalid-input"))
-            if staging != nil { result.items = pendingWorkspaceImportItems(desired) }
+            if staging != nil { result.items = pendingWorkspaceImportItems(desired, known: plannedItems) }
         }
         let cleanupCause = repositoryImportFailureCause(result)
         for repository in prepared {
@@ -126,77 +129,136 @@ extension WorkspaceService {
         finishRepositoryStaging(staging, items: &result.items, causeCode: cleanupCause)
         clearCancelledImportFailure(&result)
         if result.reasonCode == nil || result.items.contains(where: { $0.reasonCode == "cleanup-failed" }) {
-            result.summarize(cancelled: result.status == .cancelled)
+            let cancelled = result.status == .cancelled || result.items.contains { $0.status == .cancelled || (Task.isCancelled && $0.reasonCode == "not-processed") }
+            result.summarize(cancelled: cancelled)
+            if !cancelled && result.items.allSatisfy({ $0.status == .success || $0.reasonCode == "already-exists" }) { result.status = .success }
         }
         return result
     }
 
-    private func beginWorkspaceImport(_ desired: WorkspaceRecord, at root: URL) async throws -> RepositoryStaging? {
+    private func decodeWorkspaceConfiguration(_ text: String, at root: URL) throws -> WorkspaceRecord {
+        try WorkspaceDocumentValidation.validateConfigurationDocument(text)
+        let document = try YAMLDecoder().decode(WorkspaceConfiguration.self, from: text)
+        var desired = WorkspaceRecord(root: root.path)
+        desired.version = document.version
+        desired.repositories = document.repositories
+        desired.groups = document.groups.mapValues { WorktreeGroup(branchName: $0.branchName, repositoryIDs: $0.repositoryIDs) }
+        do { try store.validate(desired) }
+        catch let failure as MonoDeckError where failure.code == "invalid-workspace-record" {
+            throw MonoDeckError("invalid-workspace-configuration", failure.userMessage)
+        }
+        return desired
+    }
+
+    private func beginWorkspaceImport(_ desired: WorkspaceRecord) async throws -> (RepositoryStaging?, [Resource: ItemResult]) {
+        let root = desired.rootURL
         let lease = try await store.lock(root); defer { lease.unlock() }
         let record = try store.load(root)
-        try checkWorkspaceImportDestination(record, staging: nil)
         try await git.checkRepository(root, main: true)
-        for group in desired.groups.keys.sorted() {
-            try await validateMembers(group, branchName: desired.groups[group]!.branchName, repositoryIDs: desired.groups[group]!.repositoryIDs, record: desired)
+        try await validateWorkspaceImportBranch(at: root)
+        var items: [Resource: ItemResult] = [:]
+        for repository in desired.repositories {
+            if let item = workspaceImportRepositoryOutcome(repository, in: record) { items[item.resource] = item }
         }
-        for name in ["repositories", "worktrees"] { try FileManager.default.createDirectory(at: root.appending(path: name), withIntermediateDirectories: true) }
-        return desired.repositories.isEmpty ? nil : try RepositoryStaging(at: root)
+        let needsClones = items.count < desired.repositories.count
+        for name in desired.groups.keys where record.groups[name] != nil { items[.group(name)] = workspaceImportSkip(.group(name)) }
+        return (needsClones ? try RepositoryStaging(at: root) : nil, items)
+    }
+
+    private func validateWorkspaceImportBranch(at root: URL) async throws {
+        let prefix = "refs/remotes/origin/"
+        let ref = try await git.run(["symbolic-ref", "--quiet", "\(prefix)HEAD"], at: root, allowFailure: true)
+        guard ref.status == 0, ref.text.hasPrefix(prefix), try await git.oid(ref.text, at: root) != nil else { return }
+        let branch = String(ref.text.dropFirst(prefix.count))
+        guard try await git.checkedOutLocalBranchRef(at: root) == "refs/heads/\(branch)" else {
+            throw MonoDeckError("workspace-branch-mismatch", .workspaceImportRequiresBranch(branch))
+        }
     }
 
     private func publishWorkspaceImport(_ desired: WorkspaceRecord, prepared: [PreparedRepository], staging: RepositoryStaging?, progress: ProgressHandler) async throws -> OperationResult {
         let root = desired.rootURL
         let lease = try await store.lock(root); defer { lease.unlock() }
         var record = try store.load(root)
-        try checkWorkspaceImportDestination(record, staging: staging)
+        try staging?.validate()
         try await git.checkRepository(root, main: true)
         var result = OperationResult(command: "workspace.configuration.import", workspace: root.path)
+        let preparedByID = Dictionary(uniqueKeysWithValues: prepared.map { ($0.repository.id, $0) })
+        var blockedRepositories = Set<String>()
         var stopped = false
-        for repository in prepared {
-            if stopped || Task.isCancelled {
-                result.items.append(.notProcessed(.repository(repository.repository.id))); stopped = true; continue
+        for repository in desired.repositories {
+            let resource = Resource.repository(repository.id)
+            let item: ItemResult
+            if let outcome = workspaceImportRepositoryOutcome(repository, in: record) { item = outcome }
+            else if stopped || Task.isCancelled { item = .notProcessed(resource) }
+            else if let prepared = preparedByID[repository.id] {
+                item = await publishRepository(prepared, record: &record, commitIgnore: false, progress: progress)
+                stopped = item.status != .success
+            } else {
+                item = ItemResult(resource, status: .failed, error: MonoDeckError("repository-selection-changed", .workspaceImportRepositoryChanged(repository.id)))
             }
-            let item = await publishRepository(repository, record: &record, commitIgnore: false, progress: progress)
-            result.items.append(item); stopped = item.status != .success
+            if item.status != .success && item.reasonCode != "already-exists" { blockedRepositories.insert(repository.id) }
+            result.items.append(item)
         }
-        if !stopped || !record.repositories.isEmpty {
+        let addedRepositories = result.items.contains { $0.data?["disposition"] == "added" }
+        let skippedRepositories = result.items.contains { $0.resource.kind == .repository && $0.reasonCode == "already-exists" }
+        if addedRepositories || (skippedRepositories && !Task.isCancelled) {
             var item = ItemResult(.workspace())
-            progress(.init(root.path, .saving, cancellable: false))
             do {
-                if let oid = try await git.commitWorkspaceFiles([".gitignore"], message: "chore: import MonoDeck workspace repositories", at: root) { item.effects.append(.init("commit-workspace-files", oid)) }
+                let paths = [".gitignore"]
+                let needsCommit = addedRepositories ? true : try await git.workspaceFilesHaveStagedChanges(paths, at: root)
+                if needsCommit {
+                    progress(.init(root.path, .saving, cancellable: false))
+                    if let oid = try await git.commitWorkspaceFiles(paths, message: "chore: import MonoDeck workspace repositories", at: root) {
+                        item.effects.append(.init("commit-workspace-files", oid))
+                    }
+                }
             } catch { fail(&item, error); stopped = true }
             if !item.effects.isEmpty || item.status != .success { result.items.append(item) }
         }
-        if Task.isCancelled && !desired.groups.isEmpty { stopped = true }
         for name in desired.groups.keys.sorted() {
             let group = desired.groups[name]!
-            let resources = [Resource.group(name)] + group.repositoryIDs.map { Resource.member(groupName: name, repositoryID: $0) }
-            if stopped { result.items += resources.map(ItemResult.notProcessed); continue }
-            do {
-                progress(.init(Resource.group(name).path, .checkingRepository))
-                let plans = try await creationPlans(name, branchName: group.branchName, members: group.repositoryIDs, record: record)
-                for plan in plans {
-                    if stopped { result.items.append(.notProcessed(plan.resource)); continue }
-                    let item = await create(plan, record: &record, createdAt: group.createdAt, progress: progress)
-                    result.items.append(item); stopped = item.status != .success
-                }
-            } catch {
-                var item = ItemResult(.group(name)); fail(&item, error)
-                result.items.append(item); result.items += resources.dropFirst().map(ItemResult.notProcessed); stopped = true
+            if record.groups[name] != nil {
+                result.items.append(workspaceImportSkip(.group(name)))
+            } else if stopped || Task.isCancelled || !blockedRepositories.isDisjoint(with: group.repositoryIDs) {
+                result.items.append(.notProcessed(.group(name)))
+                result.items += group.repositoryIDs.map { .notProcessed(.member(groupName: name, repositoryID: $0)) }
+            } else {
+                let items = await createImportedGroup(name, branchName: group.branchName, members: group.repositoryIDs, record: &record, progress: progress)
+                result.items += items
+                stopped = items.contains { $0.status == .failed || $0.status == .cancelled }
             }
         }
-        result.summarize(cancelled: result.items.contains { $0.status == .cancelled } || (Task.isCancelled && stopped))
         return result
     }
 
-    private func checkWorkspaceImportDestination(_ record: WorkspaceRecord, staging: RepositoryStaging?) throws {
-        guard record.repositories.isEmpty && record.groups.isEmpty else { throw MonoDeckError("workspace-not-empty", .importRequiresEmptyWorkspaceChooseAnotherWorkspaceIn) }
-        try staging?.validate()
-        try PathSafety.emptyResourceDirectories(record.rootURL, excluding: staging.map { [$0.directory.url] } ?? [])
+    private func workspaceImportRepositoryOutcome(_ repository: Repository, in record: WorkspaceRecord) -> ItemResult? {
+        let resource = Resource.repository(repository.id)
+        if let existing = record.repositories.first(where: { $0.id.lowercased() == repository.id.lowercased() }) {
+            if existing.url == repository.url { return workspaceImportSkip(resource) }
+            return ItemResult(resource, status: .failed, error: MonoDeckError("repository-conflict", .repositoryIDCollision(repository.id)))
+        }
+        do {
+            let path = try PathSafety.child("repositories", of: record.rootURL).appending(path: repository.id)
+            guard !PathSafety.exists(path) else { throw MonoDeckError("path-conflict", .repositoryTargetAlreadyExists(path.path)) }
+            return nil
+        } catch {
+            var item = ItemResult(resource)
+            fail(&item, error)
+            return item
+        }
     }
 
-    private func pendingWorkspaceImportItems(_ desired: WorkspaceRecord) -> [ItemResult] {
-        desired.repositories.map { .notProcessed(.repository($0.id)) } + desired.groups.keys.sorted().flatMap { name in
-            [ItemResult.notProcessed(.group(name))] + desired.groups[name]!.repositoryIDs.map { .notProcessed(.member(groupName: name, repositoryID: $0)) }
+    private func workspaceImportSkip(_ resource: Resource) -> ItemResult {
+        var item = ItemResult(resource, status: .skipped)
+        item.reasonCode = "already-exists"
+        item.data = ["disposition": "already-exists"]
+        return item
+    }
+
+    private func pendingWorkspaceImportItems(_ desired: WorkspaceRecord, known: [Resource: ItemResult]) -> [ItemResult] {
+        resources(desired).compactMap { resource in
+            if case .member(let group, _) = resource, known[.group(group)]?.reasonCode == "already-exists" { return nil }
+            return known[resource] ?? .notProcessed(resource)
         }
     }
 

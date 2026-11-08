@@ -126,18 +126,32 @@ struct SettingsView: View {
         openingWorkspaceURL = nil
     }
     private func importYAML() {
+        guard let root = model.workspace.record?.rootURL else { return }
+        let contextID = model.workspace.contextID
         Task {
-            do { if let file = try await FilePanels.readYAML(prompt: model.text.string(.uiImport)) { model.presentation.resultHost = .settings; model.management.importWorkspace(file.text, filename: file.name) } }
-            catch { model.presentation.presentMessage(error, title: model.text.string(.uiCanTReadConfigurationFile), host: .settings) }
+            do {
+                guard let file = try await FilePanels.readYAML(prompt: model.text.string(.uiImport), at: root),
+                      model.workspace.contextID == contextID, model.workspace.canManage else { return }
+                model.presentation.resultHost = .settings
+                model.management.importWorkspace(file.text, filename: file.name)
+            } catch {
+                guard model.workspace.contextID == contextID, model.workspace.canManage else { return }
+                model.presentation.presentMessage(error, title: model.text.string(.uiCanTReadConfigurationFile), host: .settings)
+            }
         }
     }
     private func exportYAML() {
         guard let root = model.workspace.record?.rootURL else { return }
+        let contextID = model.workspace.contextID
         Task {
             do {
-                guard let destination = await FilePanels.yamlDestination(name: root.lastPathComponent, directory: model.service.store.directoryBoundary) else { return }
+                guard let destination = await FilePanels.yamlDestination(at: root), model.workspace.contextID == contextID,
+                      !model.busy, !model.presentation.quitPending else { return }
                 try await model.service.exportYAML(at: root, to: destination)
-            } catch { model.presentation.presentMessage(error, title: model.text.string(.uiCanTExportConfiguration), host: .settings) }
+            } catch {
+                guard model.workspace.contextID == contextID, !model.presentation.quitPending else { return }
+                model.presentation.presentMessage(error, title: model.text.string(.uiCanTExportConfiguration), host: .settings)
+            }
         }
     }
 }
