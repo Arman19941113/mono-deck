@@ -28,9 +28,9 @@ description: Update the MonoDeck version and CHANGELOG, then create a local rele
 
 ## 3. Update CHANGELOG.md
 
-- Use `## [X.Y.Z] - YYYY-MM-DD` with the user's local date and existing language/categories. Insert after Unreleased, if present, before historical releases. If `CHANGELOG.md` is absent, create it beginning with `# Changelog`.
-- Describe actual, completed changes from the comparison range in concise Chinese, focusing on user impact; merge duplicates. Judge actual diffs, not commit types. Omit internal refactoring, tests, CI, tooling, dependencies, documentation, and skill changes without user impact; do not copy commits, enumerate implementation details, or invent benefits or test results. Highlight installation, upgrade, and compatibility changes, including CLI arguments, JSON, workspace YAML, and minimum macOS requirements. Include migration or recovery steps when users must act.
-- If the range contains only internal maintenance with no user impact, use one concise Chinese note stating that fact to keep the section nonempty.
+- Use `## [X.Y.Z] - YYYY-MM-DD` with the user's local date and the existing English category headings. Insert after Unreleased, if present, before historical releases. If `CHANGELOG.md` is absent, create it beginning with `# Changelog`.
+- Describe actual, completed changes from the comparison range in concise English, focusing on user impact; merge duplicates. Judge actual diffs, not commit types. Omit internal refactoring, tests, CI, tooling, dependencies, documentation, and skill changes without user impact; do not copy commits, enumerate implementation details, or invent benefits or test results. Highlight installation, upgrade, and compatibility changes, including CLI arguments, JSON, workspace YAML, and minimum macOS requirements. Include migration or recovery steps when users must act.
+- If the range contains only internal maintenance with no user impact, use one concise English note stating that fact to keep the section nonempty.
 - Move this release's entries out of Unreleased, retaining other entries and historical releases. Verify the origin of any existing target-version section before editing it to avoid duplication.
 - Run `python3 script/release_notes.py v<version>` and review the extracted notes. Fix validation failures before committing or tagging; CI reuses the section, so no separate release notes are needed.
 

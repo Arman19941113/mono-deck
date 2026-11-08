@@ -5,37 +5,37 @@ name = "MonoDeck"
 [setup]
 script = ""
 
-# 构建并启动开发版 App，使用正常工作区配置，启动后持续运行。
+# Build and launch the Debug app with the regular workspace configuration and leave it running.
 [[actions]]
 name = "MonoDeck Run"
 icon = "run"
 command = "task run"
 
-# 构建开发版 App 并加载隔离的临时 Git 场景，正常退出时清理。
+# Build the Debug app with an isolated temporary Git scenario. Cleanup runs on normal exit.
 [[actions]]
 name = "MonoDeck Mock"
 icon = "run"
 command = "task mock"
 
-# 构建开发版 App 并验证本次实例启动，输出 PID 后保持运行，agent 按验证流程退出并清理。
+# Build the Debug app, verify startup, print its PID, and leave it running. Follow the verification procedure to quit and clean up this instance.
 [[actions]]
 name = "MonoDeck Verify"
 icon = "run"
 command = "task verify"
 
-# 构建开发版 App 并进入 LLDB 调试器，输入 run 启动，可设置断点、单步执行和查看堆栈。
+# Build the Debug app and enter LLDB. Type run to launch, then set breakpoints, step through code, or inspect the stack.
 [[actions]]
 name = "MonoDeck Debug"
 icon = "run"
 command = "task debug"
 
-# 构建并验证开发版 App 启动，按本次实例 PID 查看统一日志，Ctrl-C 仅停止日志流。
+# Build the Debug app, verify startup, and stream unified logs for this instance's PID. Ctrl-C stops only the log stream.
 [[actions]]
 name = "MonoDeck Logs"
 icon = "run"
 command = "task logs"
 
-# 构建并验证开发版 App 启动，按本次实例 PID 查看 MonoDeck subsystem 日志，Ctrl-C 仅停止日志流。
+# Build the Debug app, verify startup, and stream MonoDeck subsystem logs for this instance's PID. Ctrl-C stops only the log stream.
 [[actions]]
 name = "MonoDeck Telemetry"
 icon = "run"

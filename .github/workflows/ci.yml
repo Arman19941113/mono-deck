@@ -132,9 +132,9 @@ jobs:
           python3 script/release_notes.py "$GITHUB_REF_NAME" > "$RUNNER_TEMP/release-notes.md"
           cat >> "$RUNNER_TEMP/release-notes.md" <<'EOF'
 
-          ## 安装说明
+          ## Installation
 
-          适用于 Apple Silicon（arm64），最低 macOS 26.5。此安装包采用 ad-hoc 签名，未做 Developer ID 签名或 Apple 公证。
+          Requires Apple Silicon (arm64) and macOS 26.5 or later. The DMG contains an ad hoc-signed `MonoDeck.app` bundle without a Developer ID signature or Apple notarization.
           EOF
 
       - name: Download DMG

@@ -5,67 +5,67 @@ vars:
 
 tasks:
   default:
-    desc: 列出可用任务
+    desc: List available tasks
     silent: true
     cmds:
       - task --list
 
   run:
-    desc: 构建并启动开发版 App（-- --reset 清除保存的工作区选择）
+    desc: Build and launch the Debug app (use -- --reset to clear the saved workspace selection)
     cmds:
       - ./script/build_and_run.sh{{.SCRIPT_ARGS}}
 
   mock:
-    desc: 构建开发版 App，打开隔离的临时 Git 场景并验证启动
+    desc: Build the Debug app, open an isolated temporary Git workspace, and verify startup
     cmds:
       - ./script/build_and_run.sh --mock linked-worktree-selected{{.SCRIPT_ARGS}}
 
   verify:
-    desc: 构建开发版 App 并验证本次实例启动，输出 PID 后保持运行
+    desc: Build the Debug app, verify startup, print its PID, and leave it running
     cmds:
       - ./script/build_and_run.sh --verify{{.SCRIPT_ARGS}}
 
   debug:
-    desc: 构建开发版 App 并进入 LLDB 调试器，输入 run 启动
+    desc: Build the Debug app and enter LLDB (type run to launch)
     interactive: true
     cmds:
       - ./script/build_and_run.sh --debug{{.SCRIPT_ARGS}}
 
   logs:
-    desc: 构建并验证开发版 App 启动，按本次实例 PID 查看进程日志
+    desc: Build the Debug app, verify startup, and stream process logs for its PID
     cmds:
       - ./script/build_and_run.sh --logs{{.SCRIPT_ARGS}}
 
   telemetry:
-    desc: 构建并验证开发版 App 启动，按本次实例 PID 查看 MonoDeck subsystem 日志
+    desc: Build the Debug app, verify startup, and stream MonoDeck subsystem logs for its PID
     cmds:
       - ./script/build_and_run.sh --telemetry{{.SCRIPT_ARGS}}
 
   quit:
-    desc: 正常退出指定的 MonoDeck 实例并等待结束（PID=<进程号>）
+    desc: Quit the specified MonoDeck instance gracefully and wait for it to exit (PID=<process-id>)
     requires:
       vars: [PID]
     cmds:
       - /usr/bin/swift -module-cache-path "${TMPDIR%/}/mono-deck-verification-module-cache" script/quit_app.swift {{.PID | shellQuote}}
 
   test:
-    desc: 隔离运行并清理单元测试，零用例失败（TEST_FILTER 筛选）
+    desc: Run unit tests in isolation and clean up afterward (filter with TEST_FILTER, fail if no tests run)
     silent: true
     cmds:
       - /usr/bin/python3 script/run_tests.py --filter {{.TEST_FILTER | default "MonoDeckTests" | shellQuote}} --{{.SCRIPT_ARGS}}
 
   package:
-    desc: 构建、检查并打包 arm64 发布版 DMG，本地完成后自动打开
+    desc: Build, verify, and package the arm64 release DMG, then open it after a local build
     cmds:
       - ./script/package_app.sh
 
   icon:previews:
-    desc: 导出 App 图标的六种原生外观（-- <输出目录>）
+    desc: Export the app icon in six native appearances (-- <output-directory>)
     cmds:
       - ./script/export_app_icon_previews.sh{{.SCRIPT_ARGS}}
 
   mock:cleanup:
-    desc: 清理已退出或未启动的本次 mock 数据（DIRECTORY=<临时目录>）
+    desc: Remove data for a mock instance that has exited or never launched (DIRECTORY=<temporary-directory>)
     requires:
       vars: [DIRECTORY]
     cmds:

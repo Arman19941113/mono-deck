@@ -2,208 +2,208 @@
 
 ## [1.8.0] - 2026-11-03
 
-### 新增
+### Added
 
-- Git 详情显示相对本地基准分支落后的提交数量，点击可查看完整列表；独有提交也改为完整展示，无需加载更多。
-- 按工作区恢复上次选中的仓库、分组、成员或首页，以及侧栏展开和文件树折叠状态；保留主窗口位置、尺寸、侧栏宽度与 Git 面板比例。
-- App 自动同步 CLI 对当前工作区登记的更改，添加或删除仓库、分组和成员后无需手动重新加载。
+- Git details show how many commits the current checkout is behind the local base branch. Click the count to see the full list. The unique commits list also shows all entries at once.
+- Restore the last selected repository, group, member, or workspace home for each workspace, along with sidebar expansion and file tree collapse states. Also restore the main window position and size, sidebar width, and Git pane proportions.
+- The app automatically reflects CLI changes to the active workspace record after repositories, groups, or members are added or removed.
 
-### 改进
+### Changed
 
-- **CLI 兼容性变更**：`workspace inspect` 改为只读目录树，`--json` 成功时直接返回 `type`、`path`、`children` 节点，不再返回原有操作结果封装；根路径为绝对路径，子路径相对直接父目录，工作树叶子的 `children` 为 `null`，失效资源静默省略。旧脚本需改用根节点的 `path`，仓库与分组 ID、逐项状态及错误请分别从 `repo list --json`、`worktree list --json` 的 `items` 读取；失败时仍沿用操作结果封装。
-- Git 浏览、CLI 查询与 YAML 导出只读本地数据，不再自动 fetch、清理登记或等待工作区锁；基准引用缺失时仍可查看文件更改，需通过“更新主仓库”或外部 Git 工具同步远端后再刷新。登记清理和内置工作流同步由 App 启动、切换工作区或手动重新加载执行。
-- 缓存最近成功的 Git 详情，并在空闲时预加载已展开资源，减少切换等待与重复读取；监听文件及 Git 状态变化，刷新期间保留旧结果，失败时提示并支持按 `⌘R` 重试。
-- 启动时先恢复页面，再执行工作区维护，进度显示在标题栏；维护失败时保留只读浏览，可查看详情并重试。
-- 添加与导入仓库的克隆准备不再占用工作区锁；空工作区 YAML 导入在全部仓库准备成功后才开始发布，准备失败或取消不登记仓库，发布后的部分成功仍会保留。同一工作区写操作遇到锁冲突时会短暂重试，超时返回 `workspace-lock-timeout`。
-- 应用更改列表忽略子模块内部修改与提交指针变化，仍显示 `.gitmodules`、类型转换和冲突；CLI 查询及操作安全检查保留完整 Git 状态。
-- 删除预览改为简要风险提示，不再单独统计忽略文件、未推送提交或检查分组中的额外嵌套仓库；删除仍会永久移除工作树及当前分支，请先备份需保留的内容。
+- **Breaking CLI change.** `workspace inspect` now returns a read-only directory tree. A successful `--json` call returns a node with `type`, `path`, and `children` directly. The root path is absolute, child paths are relative to their immediate parents, and the `children` field is `null` for worktree leaves. Invalid resources are omitted silently. Update scripts to read the root path from the root node's `path` and get repository and group IDs, per-item status, and errors from `items` in `repo list --json` and `worktree list --json`, respectively. Failures still use the operation result envelope.
+- Git browsing, CLI queries, and YAML export now read only local data and run without taking or waiting for the workspace lock. If the base ref is missing, local changes remain visible. Update the main repository or sync the remote with an external Git tool, then refresh. Workspace record cleanup and bundled workflow synchronization run when the app starts, switches workspaces, or reloads manually.
+- Cache the latest successful Git details and preload expanded resources while idle to make switching faster and reduce repeated reads. Watch for file and Git state changes, keep previous results visible during refresh, and show a retry message on failure. Press `⌘R` to retry.
+- Restore the previous view at startup before running workspace maintenance and show maintenance progress in the title bar. If maintenance fails, read-only browsing remains available and users can inspect the failure and retry.
+- Prepare clones outside the workspace lock when adding or importing repositories. YAML import into an empty workspace begins publishing only after all repositories are prepared successfully. Preparation failure or cancellation leaves repositories unregistered. Changes already published are retained if a later step fails. Writes to the same workspace retry briefly on lock contention and return `workspace-lock-timeout` if the lock remains unavailable.
+- The app's local changes list hides changes inside submodules and changes to their recorded commits. It still shows `.gitmodules` changes, type changes, and conflicts. CLI queries and operation safety checks use the full Git status.
+- Deletion previews now summarize risk. They skip separate counts for ignored files and unpushed commits, as well as checks for additional nested repositories in a group. Deletion still permanently removes the worktree and its current branch. Back up any content you want to keep.
 
-### 修复
+### Fixed
 
-- 在主窗口首次显示前恢复位置与尺寸，避免窗口显示后跳变；设置引导先完成初始检查再显示，减少状态闪动。
-- 修复工作区登记同步与 Git 缓存失效遗漏，避免管理操作或外部修改后继续展示过期状态。
+- Restore the main window position and size before it first appears to prevent a visible jump. Finish initial setup checks before showing the setup window to reduce flicker.
+- Fix missed workspace record synchronization and Git cache invalidation that could leave stale data visible after management operations or external changes.
 
 ## [1.7.6] - 2026-10-28
 
-### 新增
+### Added
 
-- 欢迎页新增 Git GUI 入口，可直接打开当前工作区。
+- Open the current workspace in a Git GUI directly from the workspace home.
 
-### 改进
+### Changed
 
-- 切换界面语言时先确认重启，确认后保存设置并自动重启；重启失败时提示手动重启。
-- 优化欢迎页按钮宽度与间距，统一外部工具显示顺序，并对齐侧栏仓库与分组图标。
+- Changing the app language asks for restart confirmation before saving the setting and restarting automatically. If the restart fails, the app prompts the user to restart manually.
+- Improve button widths and spacing on the workspace home, show external tools in a consistent order, and align repository and group icons in the sidebar.
 
 ## [1.7.5] - 2026-10-28
 
-### 改进
+### Changed
 
-- 固定软件更新窗口尺寸，切换检查、下载、校验及准备安装等状态时保持布局稳定。
-- 更新失败时区分检查、下载和安装阶段，提供对应的重试建议；可通过“详细信息”浮层查看并复制诊断信息。
-- 更新准备完成后，明确提示重启前需等待当前操作结束或先处理操作结果。
+- Keep the software update window a fixed size so the layout stays steady while checking, downloading, verifying, and preparing to install an update.
+- Distinguish failures during checks, downloads, and installation, and show retry guidance for each stage. Open the Details popover to view and copy diagnostic information.
+- Once an update is ready, explain that users should wait for the current operation to finish or address its result before restarting.
 
 ## [1.7.4] - 2026-10-28
 
-### 新增
+### Added
 
-- 默认在启动或重新激活时自动检查更新，距上次检查至少 24 小时才再次检查；可在更新窗口关闭自动检查。后台检查无新版或失败时不提示，发现新版后在 App 处于前台且当前操作结束时显示更新窗口，下载和安装仍由用户确认。
+- Automatically check for updates by default when the app launches or becomes active, with at least 24 hours between checks. Users can turn off automatic checks in the update window. Background checks stay silent on failure or when the app is up to date. If an update is available, the window appears when the app is in the foreground and the current operation has finished. Download and installation still require confirmation.
 
-### 改进
+### Changed
 
-- 更新窗口可点击目标版本号查看发布说明，并明确说明“安装并重启”会下载、安装更新并重启应用。
-- 移除更新窗口中重复的关闭按钮，支持按 Esc 取消当前操作或关闭空闲窗口。
+- Click the target version number in the update window to read its release notes. The window explains that Install and Restart downloads and installs the update, then restarts the app.
+- Remove the redundant Close button from the update window. Press Esc to cancel the active operation or close the idle window.
 
 ## [1.7.3] - 2026-10-27
 
-### 改进
+### Changed
 
-- 稳定软件更新窗口布局，完善各阶段状态、失败重试入口和无障碍提示。
+- Stabilize the software update window layout and improve status messages, retry controls, and accessibility announcements.
 
-### 修复
+### Fixed
 
-- 修复加载更多提交记录失败后，已加载的提交记录被隐藏的问题。
+- Keep previously loaded commits visible when loading more commits fails.
 
 ## [1.7.2] - 2026-10-27
 
-### 改进
+### Changed
 
-- 自动更新下载时显示进度条、百分比和已下载大小，下载完成后显示安装包校验状态。
-- 侧栏文件夹统一使用闭合图标，调整展开箭头样式并加入旋转动画，遵循系统“减少动态效果”设置。
+- Show a progress bar, percentage, and downloaded size while downloading an update, then show installer verification status.
+- Use closed-folder icons throughout the sidebar and update disclosure arrows with a rotation animation that respects the system Reduce Motion setting.
 
 ## [1.7.1] - 2026-10-27
 
-### 改进
+### Changed
 
-- 内置 `mono-deck-workflow` 技能允许根据任务自动调用，无需每次显式输入技能名称。
-- 新建工作树分组默认展开，已有分组保留展开或折叠状态。
-- 自动更新安装包改用应用缓存目录，准备安装成功后自动清理；取消、重新检查或退出时也会清理本次下载，不再写入下载目录。
+- Allow automatic invocation of the bundled `mono-deck-workflow` skill when the task calls for it.
+- Expand new worktree groups by default and preserve the expansion state of existing groups.
+- Store update installers in the app cache. Remove the current download after installation preparation succeeds, or when the user cancels, checks again, or quits.
 
-### 修复
+### Fixed
 
-- Git 详情首次加载或加载更多提交记录失败时，显示明确的错误提示。
-- 限制 YAML 仓库导入的嵌套深度与别名展开规模，内容过于复杂时提示减少嵌套或重复别名后重试。
+- Show an explicit error when Git details fail to load initially or when loading more commits fails.
+- Limit YAML nesting depth and alias expansion during repository import. If the input is too complex, ask the user to reduce nesting or repeated aliases before retrying.
 
 ## [1.7.0] - 2026-10-27
 
-### 新增
+### Added
 
-- 语言设置新增“跟随系统”，菜单、系统对话框与界面文案统一使用所选的简体中文或英文，切换语言后需重启。升级后默认跟随系统，旧版语言选择不会沿用；如需固定语言，请在设置中重新选择。
+- Add Follow System to language settings. Menus, system dialogs, and app text consistently use the selected language, Simplified Chinese or English, after a restart. Upgrading to this release resets the language setting to Follow System. Select a language again in Settings to keep it fixed.
 
-### 改进
+### Changed
 
-- 简化设置引导布局，直接显示 CLI 安装位置与工作区路径；已有 CLI 安装不可用时，提供明确的重新安装入口与状态。
-- 完善操作结果、配置错误与更新失败等提示的中文显示，并可展开详细信息查看原始诊断。
+- Simplify setup and show the CLI installation location and workspace path directly. If an existing CLI installation is unusable, show its status and provide a reinstall action.
+- Improve Simplified Chinese copy for operation results, configuration errors, and update failures. Expand Details to see the original diagnostics.
 
-### 修复
+### Fixed
 
-- 设置引导的取消与关闭行为根据主窗口状态决定：主窗口仍打开时返回主窗口，否则退出应用。
-- 修复“安装并重启”在退出准备期间卡住、导致更新无法完成的问题。
+- Canceling or closing setup returns to the main window if it is still open and quits the app otherwise.
+- Fix an issue that could stall Install and Restart during shutdown and prevent the update from completing.
 
 ## [1.6.1] - 2026-10-26
 
-### 改进
+### Changed
 
-- 移除设置引导和检查更新窗口中的重复标题。
+- Remove duplicate titles from the setup and update windows.
 
-### 修复
+### Fixed
 
-- 补齐设置引导、操作结果、仓库状态和更新错误等提示的中文翻译。
-- CLI 检查区分命令未加入 PATH、命令冲突和 shell 启动失败，分别给出处理建议；发生冲突时显示当前命令与预期路径。
+- Complete the Simplified Chinese translations for setup, operation results, repository status, and update errors.
+- Distinguish a missing command on PATH, a command conflict, and shell startup failure when checking the CLI. Show guidance for each case and list both the current command path and the expected path when they conflict.
 
 ## [1.6.0] - 2026-10-26
 
-### 新增
+### Added
 
-- 检查更新后可点击“安装并重启”，自动下载并校验安装包，完成退出处理后替换应用并启动新版，保留工作区数据。应用所在文件夹需允许当前用户写入；安装后不自动回退旧版，若新版未能启动，可从原安装位置手动重新打开。
+- After checking for updates, click Install and Restart to download and verify the installer. Once the app has finished shutting down, the installer replaces it and launches the new version while preserving workspace data. The app's folder must be writable by the current user. Rolling back requires manual action. If the new version fails to launch, reopen it manually from the original installation location.
 
-### 改进
+### Changed
 
-- 设置引导中的工作区路径使用更多可用空间，减少长路径截断。
+- Give the workspace path more room in setup to reduce truncation.
 
-### 修复
+### Fixed
 
-- 修复更新 App 后 CLI 仍停留在旧版的问题：`~/.local/bin/mono-deck` 改为直接链接当前 App 内置 CLI，App 路径不变时随更新或回退自动切换。旧安装方式首次迁移、移动 App 后，需在引导中重新安装 CLI 以修复链接。
+- Keep the CLI in sync with the app version. `~/.local/bin/mono-deck` now links directly to the CLI bundled in the current app, so updates and rollbacks switch the CLI automatically as long as the app path stays the same. Reinstall the CLI in setup when migrating a legacy installation or after moving the app to repair the link.
 
 ## [1.5.0] - 2026-10-26
 
-### 新增
+### Added
 
-- “关于 MonoDeck”面板新增项目 GitHub 链接，便于访问源码。
+- Add a link to the project's GitHub repository in the About MonoDeck panel.
 
-### 改进
+### Changed
 
-- 在设置中切换工作区时显示包含目标路径的加载弹窗，加载期间不可取消，成功后自动关闭设置并显示主窗口。
-- 工作区目录选择器默认定位到当前工作区的父目录，便于切换到同级目录。
-- 侧栏目录与工作树分组采用系统文件夹图标，并随展开状态切换。
-- 统一设置引导、管理表单、进度与结果等界面的字体层级和路径样式。
+- Show a loading dialog with the destination path when switching workspaces in Settings. Cancellation is disabled during loading. On success, Settings closes and the main window appears.
+- Open the workspace picker at the parent of the current workspace to make it easier to switch to a sibling folder.
+- Use system folder icons for sidebar directories and worktree groups, with icons that reflect their expansion state.
+- Use a consistent typography hierarchy and path style across setup, management forms, progress views, and results.
 
-### 修复
+### Fixed
 
-- 修复切换工作区后，设置引导仍保留旧工作区路径、候选项或错误状态的问题。
+- Clear the old workspace path, candidates, and errors from setup after switching workspaces.
 
 ## [1.4.0] - 2026-10-24
 
-### 新增
+### Added
 
-- 支持通过“MonoDeck → 检查更新…”检查 GitHub 最新正式版本，下载并打开安装包；退出应用后，将新版本拖入 Applications 替换即可，工作区数据会保留。
+- Choose Check for Updates… from the MonoDeck menu to check the latest stable GitHub release, then download and open its installer. Quit the app and drag the new version into Applications to replace it. Workspace data is preserved.
 
-### 改进
+### Changed
 
-- 激活应用时改为静默刷新工作区，避免显示刷新进度。
-- 打开或重新加载工作区时，会丢弃内置工作流 `SKILL.md` 与 `agents/openai.yaml` 在工作区及暂存区中的未提交改动，并同步内置内容。已有自定义内容请在升级前迁移至独立的 `.agents/skills/mono-deck-workflow-addon/SKILL.md`。
+- Refresh the workspace silently when the app becomes active.
+- Opening or reloading a workspace replaces the bundled workflow's `SKILL.md` and `agents/openai.yaml`, discarding uncommitted changes in both the working tree and the index. Move any customizations into a separate `.agents/skills/mono-deck-workflow-addon/SKILL.md` before upgrading.
 
 ## [1.3.0] - 2026-10-22
 
-### 新增
+### Added
 
-- 支持选择一个或多个本地文件夹扫描 Git 仓库，勾选后从远端克隆到工作区；仅列出远端可访问且具有有效默认分支的仓库，不迁移原目录中的开发环境或未提交改动。
-- 从 YAML 导入仓库时，可先逐项勾选或全选要导入的仓库。
+- Scan one or more local folders for Git repositories, then select repositories to clone from their remotes into the workspace. The results include only repositories with a reachable remote and a valid default branch. Local development environments and uncommitted changes stay in their original folders.
+- Select individual repositories or all repositories before importing from YAML.
 
-### 改进
+### Changed
 
-- YAML 文件选择器默认显示隐藏文件，便于选择隐藏目录中的配置。
-- 补充 MIT 开源许可证，明确项目的使用与分发条款。
+- Show hidden files by default in the YAML file picker to make configurations in hidden folders easier to select.
+- Add the MIT license covering use and distribution of the project.
 
-### 修复
+### Fixed
 
-- 修复首次完成工作区设置后，关闭设置窗口导致应用意外退出的问题。
+- Fix an unexpected app exit when closing Settings after initial workspace setup.
 
 ## [1.2.0] - 2026-10-21
 
-### 新增
+### Added
 
-- 支持通过全局快捷键显示或隐藏 MonoDeck，默认使用 `⌃⌥Z`；显示时可恢复最小化窗口或重新打开已关闭的窗口，长按快捷键不会反复切换。
-- 支持在设置中录制、修改和删除全局快捷键，自动保存配置，并在快捷键不可用时提示。
+- Show or hide MonoDeck with a global shortcut, `⌃⌥Z` by default. Showing the app restores a minimized window or reopens a closed window. Holding the shortcut triggers a single toggle.
+- Record, change, or remove the global shortcut in Settings. The app saves it automatically and reports when the shortcut is unavailable.
 
 ## [1.1.1] - 2026-10-20
 
-### 改进
+### Changed
 
-- 中文界面统一使用“工作树分组”，保持菜单、侧栏和操作提示的术语一致。
-- 本地打包完成后自动打开生成的 DMG。
-- 开发构建默认精简日志并显示构建、mock 数据准备及启动耗时，支持通过 `--verbose` 查看完整日志；普通 mock 启动会验证并激活新实例。
+- Standardize the Simplified Chinese term for Worktree Group across menus, the sidebar, and operation messages.
+- Open the generated DMG automatically after local packaging.
+- Use concise logs for development builds by default and show timings for the build, mock data preparation, and launch. Pass `--verbose` for full logs. A normal mock launch verifies and activates the new instance.
 
-### 修复
+### Fixed
 
-- 删除和导入等操作在不可中断阶段也可接收取消请求，完成当前项后停止后续处理，并明确显示等待取消的状态。
-- 修复添加或导入仓库时取消工作区检查被误报为失败的问题，并恢复工作区导入进入分组检查阶段时的取消响应。
-- Git 详情缺少远程默认分支引用时会尝试拉取恢复；比较基准不可用或提交读取失败时隐藏提交面板，保留可用的工作树更改。
+- Accept cancellation requests during non-interruptible phases of operations such as deletion and import. Finish the current item, skip the remaining items, and show that cancellation is pending.
+- Treat canceled workspace checks during repository addition or import as cancellations and restore cancellation handling when workspace import reaches group checks.
+- Try fetching to recover a missing remote default branch ref in Git details. If the comparison base is unavailable or reading commits fails, hide the commits pane and keep available worktree changes visible.
 
 ## [1.1.0] - 2026-10-19
 
-### 新增
+### Added
 
-- 支持通过 iTerm2、Xcode 和 GitHub Desktop 打开仓库与工作树；Xcode 会优先打开目录中的 workspace、工程或 Swift Package。
+- Open repositories and worktrees in iTerm2, Xcode, and GitHub Desktop. Xcode prefers a workspace, project, or Swift package in the directory.
 
-### 改进
+### Changed
 
-- 调整开始页的操作与外部工具布局，根据所选工具名称统一按钮宽度，并优化下拉菜单长名称的显示。
-- 工作区刷新与 Git 详情预加载复用状态读取，减少重复检查。
-- 内置 `mono-deck-workflow` 技能改为仅在显式调用时执行，创建分组前先确认分组名称和完整仓库列表。
-- 工作区自动提交附加 `Auto-committed-by: MonoDeck` 署名，便于识别 MonoDeck 生成的提交。
+- Rearrange actions and external tools on the workspace home, use consistent button widths based on selected tool names, and improve how long names appear in menus.
+- Share status reads between workspace refresh and Git details preloading to reduce duplicate checks.
+- Require explicit invocation of the bundled `mono-deck-workflow` skill and confirm the group name and full repository list before creating a group.
+- Add the `Auto-committed-by: MonoDeck` trailer to automatic workspace commits so they are easy to identify.
 
-### 修复
+### Fixed
 
-- Git 详情中的更改与提交面板按内容高度布局，内容超出可用空间时可调整分隔位置，减少多余留白。
-- 修复外部工具下拉按钮出现多余焦点边框的问题。
-- 修复工作区检查取消后汇总状态丢失的问题，保留已完成项目与先前失败的结果，并正确返回取消状态。
+- Size the changes and commits panes in Git details to their content. Allow the divider to move when the content exceeds the available space.
+- Remove an extra focus ring from external tool dropdown buttons.
+- Preserve completed items and earlier failures in the summary when a workspace check is canceled, and return the correct cancellation status.
