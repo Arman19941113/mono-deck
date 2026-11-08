@@ -42,15 +42,4 @@ struct CommandInputTests {
             throw error
         }
     }
-
-    @Test func ignoreChecksPreserveTrackedFilesNegationsAndNulSeparatedNames() async throws {
-        let fixture = try await Fixture(template: .emptyWorkspace); defer { fixture.remove() }
-        try Data(".ignored/\nignored-*\n!ignored-keep\n".utf8).write(to: fixture.root.appending(path: ".gitignore"))
-        try Data("tracked".utf8).write(to: fixture.root.appending(path: "ignored-tracked.txt"))
-        _ = try await fixture.service.git.run(["add", "-f", "ignored-tracked.txt"], at: fixture.root)
-        let paths = [".ignored/有\n换行", "ignored-new.txt", "ignored-keep", "ignored-tracked.txt", "visible.txt"]
-        let ignored = try await fixture.service.git.ignoredPaths(paths, at: fixture.root)
-        #expect(ignored == Set(paths.prefix(2)))
-        #expect(try await fixture.service.git.ignoredPaths(["visible.txt"], at: fixture.root).isEmpty)
-    }
 }

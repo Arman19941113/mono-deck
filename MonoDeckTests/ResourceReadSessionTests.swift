@@ -3,7 +3,7 @@ import Testing
 @testable import MonoDeckCore
 
 struct ResourceReadSessionTests {
-    @Test func unchangedResourcesAndIndexChangesReuseRepositoryPreparation() async throws {
+    @Test func unrelatedRecordAndWorkingTreeChangesReuseRepositoryPreparation() async throws {
         let f = try await Fixture(template: .singleRepository); defer { f.remove() }
         let record = try f.service.store.load(f.root)
         let trace = f.directory.appending(path: "read-session-trace")
@@ -20,16 +20,10 @@ struct ResourceReadSessionTests {
         try Data("indexed".utf8).write(to: first.path.appending(path: "new.txt"))
         _ = try await service.git.run(["add", "new.txt"], at: first.path)
         try Data().write(to: trace)
-        let changedIndex = try await session.prepare(resource, in: unrelated)
-        #expect(changedIndex.isValid(in: unrelated))
-        let commands = try String(contentsOf: trace, encoding: .utf8)
-        #expect(commands.contains("ls-files --stage"))
-        #expect(!commands.contains("worktree list") && !commands.contains("rev-parse --absolute-git-dir"))
         try Data("[submodule \"new\"]\n    path = new\n    url = https://mono-deck-test.invalid/new.git\n".utf8).write(to: first.path.appending(path: ".gitmodules"))
-        try Data().write(to: trace)
-        _ = try await session.prepare(resource, in: unrelated)
-        let submoduleConfigurationCommands = try String(contentsOf: trace, encoding: .utf8)
-        #expect(submoduleConfigurationCommands.contains("ls-files --stage") && !submoduleConfigurationCommands.contains("worktree list"))
+        let changed = try await session.prepare(resource, in: unrelated)
+        #expect(changed.isValid(in: unrelated))
+        #expect(try String(contentsOf: trace, encoding: .utf8).isEmpty)
     }
 
     @Test func includedConfigurationChangesAndExplicitRevalidationCannotUseOldPreparation() async throws {

@@ -4,31 +4,29 @@ import Testing
 @testable import MonoDeck
 
 @MainActor struct WorkspaceSyncTests {
-    @Test func recordEventsApplyChangesWithoutRewritingOrRefreshingUnrelatedDetails() async throws {
-        let fixture = try await Fixture(template: .emptyWorkspace); defer { fixture.remove() }
+    @Test func cliRecordChangesSyncWithoutRewritingOrRefreshingUnrelatedDetails() async throws {
+        let fixture = try await Fixture(template: .singleRepository); defer { fixture.remove() }
         try await fixture.prepareEmptyGroup("current")
-        let monitor = WorkspaceRecordMonitorStub()
         let trace = fixture.directory.appending(path: "record-events-trace")
-        let model = try makeModel(fixture, monitor: monitor, trace: trace)
+        let model = try makeModel(fixture, trace: trace)
         defer { model.defaults.removePersistentDomain(forName: fixture.directory.lastPathComponent) }
         model.workspace.selection = .group("current")
         do {
             try await eventually { !model.workspace.detailLoading && model.workspace.detail.summary != nil }
             let previous = model.workspace.detail.summary?.headOID
-            var changed = try fixture.service.store.load(fixture.root)
-            changed.groups["external"] = WorktreeGroup(branchName: "external")
-            try fixture.service.store.save(changed)
+            try Data().write(to: trace)
+            let output = try await fixture.runCLI(["group", "create", "external", "--repo", "repo", "--json", "--workspace", fixture.root.path])
+            try #require(output.status == 0, "\(output.text)")
+            let changed = try fixture.service.store.load(fixture.root)
+            try #require(changed.groups["external"]?.repositoryIDs == ["repo"])
             let file = fixture.service.store.recordURL(fixture.root)
             let bytes = try Data(contentsOf: file)
-            try Data().write(to: trace)
-            for _ in 0..<8 { monitor.emit() }
             try await eventually { model.workspace.record == changed }
             try await Task.sleep(for: .milliseconds(250))
             #expect(model.workspace.detail.summary?.headOID == previous)
             #expect(!model.busy && model.workspace.blocked == nil)
             #expect(try Data(contentsOf: file) == bytes)
             #expect(commandCount("status ", in: trace) == 0)
-            #expect(commandCount("rev-parse --show-toplevel", in: trace) == 1)
             await model.workspace.stopReads()
         } catch {
             await model.workspace.stopReads()
@@ -410,8 +408,9 @@ import Testing
     @Test func activationDoesNotReadDetailsAgainAfterUnchangedRecordLoads() async throws {
         let fixture = try await Fixture(template: .singleRepository); defer { fixture.remove() }
         let monitor = WorkspaceRecordMonitorStub()
+        let clock = WorkspaceSyncClock()
         let trace = fixture.directory.appending(path: "activation-once-trace")
-        let model = try makeModel(fixture, monitor: monitor, trace: trace)
+        let model = try makeModel(fixture, monitor: monitor, trace: trace, now: { clock.now })
         defer { model.defaults.removePersistentDomain(forName: fixture.directory.lastPathComponent) }
         model.workspace.selection = .repository("repo")
         model.workspace.setVisibleResources([.repository("repo")], in: try #require(model.workspace.record?.root))
@@ -419,7 +418,7 @@ import Testing
             try await eventually { !model.workspace.detailLoading && model.workspace.detail.summary != nil }
             model.workspace.setActive(false)
             try Data("latest".utf8).write(to: fixture.root.appending(path: "repositories/repo/latest.txt"))
-            try await Task.sleep(for: .milliseconds(250))
+            clock.now = clock.now.advanced(by: .seconds(10))
             try Data().write(to: trace)
             await model.activate()
             try await eventually { !model.workspace.detailLoading && model.workspace.detail.changes?.map(\.path) == ["latest.txt"] }
@@ -512,7 +511,7 @@ import Testing
         }
     }
 
-    private func makeModel(_ fixture: Fixture, monitor: WorkspaceRecordMonitorStub, trace: URL? = nil,
+    private func makeModel(_ fixture: Fixture, monitor: any WorkspaceRecordChangeMonitoring = WorkspaceRecordChangeMonitor(), trace: URL? = nil,
                            now: @escaping @MainActor () -> ContinuousClock.Instant = { .now },
                            waitForRecordDebounce: (@MainActor (ContinuousClock.Instant) async throws -> Void)? = nil) throws -> AppModel {
         let defaults = try #require(UserDefaults(suiteName: fixture.directory.lastPathComponent))

@@ -1,11 +1,11 @@
 import Foundation
 
 extension WorkspaceService {
-    public func prepareResourceRead(_ resource: Resource, in record: WorkspaceRecord, visibility: GitChangeVisibility = .all) async throws -> ResourceReadContext {
-        try await prepareResourceRead(resource, in: record, repository: nil, visibility: visibility)
+    public func prepareResourceRead(_ resource: Resource, in record: WorkspaceRecord) async throws -> ResourceReadContext {
+        try await prepareResourceRead(resource, in: record, repository: nil)
     }
 
-    func prepareResourceRead(_ resource: Resource, in record: WorkspaceRecord, repository inspection: RepositoryInspection?, visibility: GitChangeVisibility = .all) async throws -> ResourceReadContext {
+    func prepareResourceRead(_ resource: Resource, in record: WorkspaceRecord, repository inspection: RepositoryInspection?) async throws -> ResourceReadContext {
         let reader = inspectionService()
         let repository: RepositoryInspection
         if let inspection { repository = inspection }
@@ -13,9 +13,9 @@ extension WorkspaceService {
         let path = try PathSafety.child(resource.path, of: record.rootURL, allowMissing: false)
         try await reader.checkWorktree(resource, at: path, repository: repository, validateHEAD: false)
         let directory = try await reader.git.run(["rev-parse", "--absolute-git-dir"], at: path).text
-        let gitDirectory = URL(fileURLWithPath: directory)
-        return try await makeReadContext(resource, record: record, path: path, gitDirectory: gitDirectory,
-                                         commonDirectory: URL(fileURLWithPath: repository.commonDirectory), main: repository.path, visibility: visibility)
+        try reader.checkCancellation()
+        return try ResourceReadContext(resource: resource, workspace: record, path: path, gitDirectory: URL(fileURLWithPath: directory),
+                                       commonDirectory: URL(fileURLWithPath: repository.commonDirectory), main: repository.path)
     }
 
     public func detailCacheIdentity(_ resource: Resource, in record: WorkspaceRecord) throws -> RepositoryCacheIdentity {
@@ -36,31 +36,6 @@ extension WorkspaceService {
         }
         return try RepositoryCacheIdentity(resource: resource, workspace: record, path: path,
                                            gitDirectory: gitDirectory, commonDirectory: commonDirectory)
-    }
-
-    func refreshSubmoduleRead(_ context: ResourceReadContext, visibility: GitChangeVisibility) async throws -> ResourceReadContext {
-        guard context.isValid(in: context.workspace) else { throw MonoDeckError("resource-unavailable", .repositorySummaryIsUnavailable) }
-        return try await makeReadContext(context.resource, record: context.workspace, path: context.path,
-                                         gitDirectory: context.gitDirectory, commonDirectory: context.commonDirectory,
-                                         main: context.mainDirectory, visibility: visibility)
-    }
-
-    private func makeReadContext(_ resource: Resource, record: WorkspaceRecord, path: URL, gitDirectory: URL,
-                                 commonDirectory: URL, main: URL, visibility: GitChangeVisibility) async throws -> ResourceReadContext {
-        let reader = inspectionService()
-        let submodulePaths: [String]
-        let submoduleIndexIdentity: SubmoduleIndexIdentity?
-        switch visibility {
-        case .all: submodulePaths = []; submoduleIndexIdentity = nil
-        case .application:
-            submoduleIndexIdentity = try? SubmoduleIndexIdentity(gitDirectory.appending(path: "index"))
-            do { submodulePaths = try await reader.git.submodulePaths(at: path) }
-            catch let error as MonoDeckError where error.code == "output-limit" { submodulePaths = [] }
-        }
-        try reader.checkCancellation()
-        return try ResourceReadContext(resource: resource, workspace: record, path: path, gitDirectory: gitDirectory,
-                                       commonDirectory: commonDirectory, main: main, submodulePaths: submodulePaths,
-                                       submoduleIndexIdentity: submoduleIndexIdentity)
     }
 
     public func workingState(_ context: ResourceReadContext, visibility: GitChangeVisibility = .all) async throws -> GitWorkingState {

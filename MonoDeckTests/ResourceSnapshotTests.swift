@@ -153,7 +153,6 @@ struct ResourceSnapshotTests {
         #expect(complete.changes.contains { $0.path == changedPath })
         let visible = try await f.service.git.workingState(at: path, visibility: .application)
         #expect(visible.changes.map(\.path) == [".gitmodules"])
-        #expect(try await f.service.git.submodulePaths(at: path) == [changedPath])
     }
 
     @Test(arguments: [false, true])
@@ -178,7 +177,6 @@ struct ResourceSnapshotTests {
         let change = try #require(visible.changes.first { $0.path == converted })
         #expect(change.index == "T" && !change.conflict)
         #expect(visible.changes.contains { $0.path == ".gitmodules" })
-        #expect(try await f.service.git.submodulePaths(at: path) == (toSubmodule ? ["ordinary.txt", "submodule"] : []))
     }
 
     @Test func applicationChangesPreserveUnstagedSubmoduleTypeConversions() throws {

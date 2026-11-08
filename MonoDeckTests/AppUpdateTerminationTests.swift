@@ -59,6 +59,7 @@ import Testing
         delegate.model = model
 
         do {
+            model.defaults.set(record.root, forKey: "workspace")
             model.workspace.record = record
             model.workspace.selection = .group("feature")
             try await waitUntil { !model.workspace.detailLoading }
@@ -80,8 +81,8 @@ import Testing
             #expect(!model.presentation.quitPending && updates.error != nil)
             try await waitUntil { fixture.helperHasExited(prepared) }
             try await waitUntil { model.workspace.detail.changes?.map(\.path) == ["pending.txt"] }
-            try Data("after failure".utf8).write(to: record.groupURL("feature").appending(path: "watched.txt"))
-            try await waitUntil { model.workspace.detail.changes?.map(\.path) == ["pending.txt", "watched.txt"] }
+            try await browsing.prepareEmptyGroup("added")
+            try await waitUntil { model.workspace.record?.groups["added"] != nil }
 
             let retry = try fixture.prepared()
             updates.restart(afterPreparing: retry)

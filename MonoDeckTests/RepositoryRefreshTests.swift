@@ -140,7 +140,7 @@ import Testing
         gate.blockedHead = blocksAhead ? first : base
         let defaults = UserDefaults(suiteName: f.directory.lastPathComponent)!
         defer { defaults.removePersistentDomain(forName: f.directory.lastPathComponent) }
-        let details = GitBrowserModel(service: f.service, defaults: defaults, monitor: TestResourceMonitor(), readCommits: { path, head, base in
+        let details = GitBrowserModel(service: f.service, defaults: defaults, readCommits: { path, head, base in
             try await gate.read(at: path, head: head, base: base)
         })
         details.cache(.init(resource: resource, available: true, dirty: false))
@@ -162,14 +162,14 @@ import Testing
             gate.blockedHead = blocksAhead ? second : base
             var idleNotified = false
             details.onIdle = { idleNotified = true }
-            details.request(.structure)
+            details.refresh(resource, in: record)
             let reading = try #require(details.detailTask)
             try await eventually { gate.started.contains(gate.blockedHead!) && gate.completed.contains(blocksAhead ? base : second) }
             #expect(!idleNotified && !details.snapshotLoading && details.detailLoading)
             #expect(details.detail.changes?.isEmpty == true && details.detail.summary?.head == "main")
             #expect(details.detail.summary?.headOID == first && details.detail.uniqueCommits?.map(\.subject) == ["first"])
             try Data("during history".utf8).write(to: path.appending(path: "last.txt"))
-            details.request(.workingTree)
+            details.refresh(resource, in: record)
             #expect(!reading.isCancelled)
             gate.blockedHead = nil
             await reading.value
@@ -196,7 +196,7 @@ import Testing
         gate.blockedHead = head
         let defaults = UserDefaults(suiteName: f.directory.lastPathComponent)!
         defer { defaults.removePersistentDomain(forName: f.directory.lastPathComponent) }
-        let details = GitBrowserModel(service: f.service, defaults: defaults, monitor: TestResourceMonitor(), readCommits: { path, head, base in
+        let details = GitBrowserModel(service: f.service, defaults: defaults, readCommits: { path, head, base in
             try await gate.read(at: path, head: head, base: base)
         })
         details.refresh(resource, in: record)
@@ -256,7 +256,9 @@ import Testing
         let defaults = UserDefaults(suiteName: f.directory.lastPathComponent)!
         defer { defaults.removePersistentDomain(forName: f.directory.lastPathComponent) }
         defaults.set(record.root, forKey: "workspace")
-        let model = AppModel(defaults: defaults, service: service, toolService: ExternalTools(applicationURL: { _ in nil }, openURL: { _, _ in }))
+        var now = ContinuousClock.now
+        let model = AppModel(defaults: defaults, service: service, toolService: ExternalTools(applicationURL: { _ in nil }, openURL: { _, _ in }),
+                             now: { now })
         model.workspace.record = record
         model.workspace.details.cache(.init(resource: .repository("slow"), available: true, dirty: false))
         model.workspace.selection = .repository("repo")
@@ -267,6 +269,7 @@ import Testing
             try await eventually { PathSafety.exists(probe.appending(path: "started")) }
             try Data("background".utf8).write(to: record.repositoryURL("slow").appending(path: "slow.txt"))
             try Data("latest".utf8).write(to: record.repositoryURL("repo").appending(path: "new.txt"))
+            now = now.advanced(by: .seconds(10))
             await model.activate()
             try await eventually { model.workspace.detail.changes?.map(\.path) == ["new.txt"] }
             #expect(!PathSafety.exists(probe.appending(path: "release")))
@@ -286,7 +289,7 @@ import Testing
         }
     }
 
-    @Test func changesDuringReadAreCoalescedWithoutCancellingTheRunningRead() async throws {
+    @Test func refreshesDuringReadAreCoalescedWithoutCancellingTheRunningRead() async throws {
         let f = try await Fixture(template: .emptyWorkspace); defer { f.remove() }
         try await f.prepareEmptyGroup("feature")
         let record = try f.service.store.load(f.root)
@@ -295,10 +298,9 @@ import Testing
         var runner = f.service.git.runner
         runner.environment["MONO_DECK_REFRESH_PROBE"] = probe.path
         let service = WorkspaceService(store: f.service.store, git: Git(runner: runner))
-        let monitor = TestResourceMonitor()
         let defaults = UserDefaults(suiteName: f.directory.lastPathComponent)!
         defer { defaults.removePersistentDomain(forName: f.directory.lastPathComponent) }
-        let details = GitBrowserModel(service: service, defaults: defaults, monitor: monitor)
+        let details = GitBrowserModel(service: service, defaults: defaults)
         details.refresh(.group("feature"), in: record)
         try await settle(details)
         let hook = probe.appending(path: "fsmonitor")
@@ -314,13 +316,12 @@ import Testing
         for arguments in [["config", "core.fsmonitor", hook.path], ["config", "core.fsmonitorHookVersion", "2"]] {
             _ = try await service.git.run(arguments, at: record.rootURL)
         }
-        details.request(.structure)
+        details.refresh(.group("feature"), in: record)
         let reading = try #require(details.detailTask)
         do {
             try await eventually { PathSafety.exists(probe.appending(path: "started")) }
             try Data("latest".utf8).write(to: record.groupURL("feature").appending(path: "new.txt"))
-            for _ in 0..<10 { monitor.emit(.workingTree) }
-            try await Task.sleep(for: .milliseconds(200))
+            for _ in 0..<10 { details.refresh(.group("feature"), in: record, userInitiated: true) }
             #expect(!reading.isCancelled)
             try Data().write(to: probe.appending(path: "release"))
             await reading.value
@@ -336,20 +337,18 @@ import Testing
         }
     }
 
-    @Test func inactiveChangesWaitForActivationAndBusyChangesResume() async throws {
+    @Test func inactiveAndBusyRefreshesWaitUntilReadsResume() async throws {
         let f = try await Fixture(template: .emptyWorkspace); defer { f.remove() }
         try await f.prepareEmptyGroup("feature")
         let record = try f.service.store.load(f.root)
-        let monitor = TestResourceMonitor()
         let defaults = UserDefaults(suiteName: f.directory.lastPathComponent)!
         defer { defaults.removePersistentDomain(forName: f.directory.lastPathComponent) }
-        let details = GitBrowserModel(service: f.service, defaults: defaults, monitor: monitor)
+        let details = GitBrowserModel(service: f.service, defaults: defaults)
         details.refresh(.group("feature"), in: record)
         try await settle(details)
         details.setActive(false)
         try Data("edit".utf8).write(to: record.groupURL("feature").appending(path: "new.txt"))
-        monitor.emit(.workingTree)
-        try await Task.sleep(for: .milliseconds(200))
+        details.refresh(.group("feature"), in: record, userInitiated: true)
         #expect(details.detailTask == nil && details.detail.changes?.isEmpty == true)
         details.setActive(true)
         try await settle(details)
@@ -361,126 +360,7 @@ import Testing
         details.resume()
         try await settle(details)
         #expect(details.detail.changes?.map(\.path) == ["busy.txt", "new.txt"])
-        let lateCallback = monitor.currentCallback
         details.stop(); await details.waitForReads()
-        lateCallback?(.init(change: .structure))
-        await Task.yield()
-        #expect(details.detailTask == nil)
-    }
-
-    @Test func nativeMonitorDeliversWorktreeAndSharedReferenceChangesAndStops() async throws {
-        let f = try await Fixture(template: .emptyWorkspace); defer { f.remove() }
-        try await f.prepareEmptyGroup("feature")
-        let record = try f.service.store.load(f.root)
-        let context = try await f.service.prepareResourceRead(.group("feature"), in: record)
-        let monitor = ResourceChangeMonitor()
-        defer { monitor.stop() }
-        let received = MonitorEvents()
-        #expect(monitor.start(context, excludedDirectories: []) { event in
-            Task { @MainActor in received.values.append(event) }
-        })
-        try Data("edit".utf8).write(to: context.path.appending(path: "new.txt"))
-        try await eventually { !received.values.isEmpty }
-        try await Task.sleep(for: .milliseconds(300))
-        received.values = []
-        try FileManager.default.removeItem(at: context.path.appending(path: "new.txt"))
-        try await eventually { received.values.contains { $0.change.contains(.workingTree) } }
-        received.values = []
-        _ = try await f.service.git.run(["update-ref", "refs/remotes/origin/main", "HEAD"], at: context.path)
-        try await eventually { received.values.contains { $0.change.contains(.summary) } }
-        monitor.stop()
-        try await Task.sleep(for: .milliseconds(200))
-        let count = received.values.count
-        try Data("after stop".utf8).write(to: context.path.appending(path: "after.txt"))
-        try await Task.sleep(for: .milliseconds(300))
-        #expect(received.values.count == count)
-    }
-
-    @Test func nativeMonitorIgnoresSubmoduleContentsAndKeepsParentStructureEvents() async throws {
-        let f = try await Fixture(template: .singleRepository); defer { f.remove() }
-        let record = try f.service.store.load(f.root)
-        let path = record.repositoryURL("repo")
-        _ = try await f.service.git.run(["submodule", "add", f.remoteURL, "sub"], at: path)
-        _ = try await f.service.git.run(["commit", "-m", "add submodule"], at: path)
-        let context = try await f.service.prepareResourceRead(.repository("repo"), in: record, visibility: .application)
-        #expect(context.submoduleDirectories == [path.appending(path: "sub")])
-        let monitor = ResourceChangeMonitor()
-        defer { monitor.stop() }
-        let received = MonitorEvents()
-        #expect(monitor.start(context) { event in
-            Task { @MainActor in received.values.append(event) }
-        })
-        try Data("control".utf8).write(to: path.appending(path: "control.txt"))
-        try await eventually { !received.values.isEmpty }
-        try await Task.sleep(for: .milliseconds(300))
-        received.values = []
-        try Data("changed".utf8).write(to: path.appending(path: "sub/README"))
-        try Data("new".utf8).write(to: path.appending(path: "sub/new.txt"))
-        _ = try await f.service.git.run(["add", "README"], at: path.appending(path: "sub"))
-        try await Task.sleep(for: .milliseconds(600))
-        #expect(received.values.isEmpty)
-
-        var modules = try Data(contentsOf: path.appending(path: ".gitmodules"))
-        modules.append(Data("\n".utf8))
-        try modules.write(to: path.appending(path: ".gitmodules"))
-        try await eventually { received.values.contains { $0.change.contains([.index, .workingTree]) } }
-        try await Task.sleep(for: .milliseconds(300))
-        received.values = []
-        _ = try await f.service.git.run(["add", ".gitmodules"], at: path)
-        try await eventually { received.values.contains { $0.change.contains(.index) } }
-        try await Task.sleep(for: .milliseconds(300))
-        received.values = []
-        _ = try await f.service.git.run(["init", "nested"], at: path)
-        try await eventually { !received.values.isEmpty }
-    }
-
-    @Test func staleSubmoduleContextDoesNotHideFilesAfterIndexTypeConversion() async throws {
-        let f = try await Fixture(template: .singleRepository); defer { f.remove() }
-        let record = try f.service.store.load(f.root)
-        let path = record.repositoryURL("repo")
-        _ = try await f.service.git.run(["submodule", "add", f.remoteURL, "sub"], at: path)
-        _ = try await f.service.git.run(["commit", "-m", "add submodule"], at: path)
-        let context = try await f.service.prepareResourceRead(.repository("repo"), in: record, visibility: .application)
-        #expect(context.submoduleDirectories == [path.appending(path: "sub")])
-        _ = try await f.service.git.run(["rm", "--cached", "sub"], at: path)
-        try FileManager.default.removeItem(at: path.appending(path: "sub/.git"))
-        _ = try await f.service.git.run(["add", "sub"], at: path)
-        #expect(context.isValid(in: record) && context.submoduleDirectories.isEmpty)
-        let monitor = ResourceChangeMonitor()
-        defer { monitor.stop() }
-        let received = MonitorEvents()
-        #expect(monitor.start(context) { event in
-            Task { @MainActor in received.values.append(event) }
-        })
-        try Data("now a parent file".utf8).write(to: path.appending(path: "sub/README"))
-        try await eventually { received.values.contains { $0.change.contains(.workingTree) || $0.candidatePaths.contains("sub/README") } }
-    }
-
-    @Test func indexChangesRebuildSubmoduleExclusionsWithoutHidingNestedRepositories() async throws {
-        let f = try await Fixture(template: .singleRepository); defer { f.remove() }
-        let record = try f.service.store.load(f.root), resource = Resource.repository("repo")
-        let path = record.repositoryURL("repo")
-        let monitor = TestResourceMonitor()
-        let defaults = UserDefaults(suiteName: f.directory.lastPathComponent)!
-        defer { defaults.removePersistentDomain(forName: f.directory.lastPathComponent) }
-        let details = GitBrowserModel(service: f.service, defaults: defaults, monitor: monitor)
-        details.refresh(resource, in: record)
-        do {
-            try await settle(details)
-            #expect(monitor.submoduleDirectories.isEmpty)
-            _ = try await f.service.git.run(["submodule", "add", f.remoteURL, "sub"], at: path)
-            monitor.emit(.structure)
-            try await eventually { monitor.submoduleDirectories == [path.appending(path: "sub")] && !details.detailLoading }
-            #expect(details.detail.changes?.map(\.path) == [".gitmodules"])
-            _ = try await f.service.git.run(["rm", "--cached", "sub"], at: path)
-            monitor.emit(.structure)
-            try await eventually { monitor.submoduleDirectories.isEmpty && !details.detailLoading }
-            #expect(details.detail.changes?.contains { $0.path == "sub/" } == true)
-            details.stop(); await details.waitForReads()
-        } catch {
-            details.stop(); await details.waitForReads()
-            throw error
-        }
     }
 
     private func settle(_ details: GitBrowserModel) async throws {
@@ -492,8 +372,6 @@ import Testing
         try #require(condition())
     }
 }
-
-@MainActor private final class MonitorEvents { var values: [ResourceChangeEvent] = [] }
 
 @MainActor private final class DrainWaitState {
     var waitingStarted = false
@@ -515,18 +393,4 @@ import Testing
         completed.insert(head)
         return commits
     }
-}
-
-private final class TestResourceMonitor: ResourceChangeMonitoring, @unchecked Sendable {
-    private let lock = NSLock()
-    private var callback: (@Sendable (ResourceChangeEvent) -> Void)?
-    private var directories: [URL] = []
-    func start(_ context: ResourceReadContext, excludedDirectories: [URL], onChange: @escaping @Sendable (ResourceChangeEvent) -> Void) -> Bool {
-        lock.withLock { callback = onChange; directories = context.submoduleDirectories }
-        return true
-    }
-    func stop() { lock.withLock { callback = nil } }
-    var currentCallback: (@Sendable (ResourceChangeEvent) -> Void)? { lock.withLock { callback } }
-    var submoduleDirectories: [URL] { lock.withLock { directories } }
-    func emit(_ event: ResourceChange) { lock.withLock { callback }?(.init(change: event)) }
 }

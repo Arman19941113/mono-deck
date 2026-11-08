@@ -13,22 +13,22 @@ public actor ResourceReadSession {
         self.service = service.inspectionService(); self.diagnostics = diagnostics
     }
 
-    public func prepare(_ resource: Resource, in record: WorkspaceRecord, visibility: GitChangeVisibility = .application,
+    public func prepare(_ resource: Resource, in record: WorkspaceRecord,
                         revalidateConfiguration: Bool = false) async throws -> ResourceReadContext {
-        try await prepare(resource, in: record, visibility: visibility, revalidateConfiguration: revalidateConfiguration, repositoryProvider: nil)
+        try await prepare(resource, in: record, revalidateConfiguration: revalidateConfiguration, repositoryProvider: nil)
     }
 
     func prepareForInspection(_ resource: Resource, in record: WorkspaceRecord, revalidateConfiguration: Bool,
                               repositoryProvider: @escaping @Sendable () async throws -> RepositoryInspection) async throws -> ResourceReadContext {
-        try await prepare(resource, in: record, visibility: .all, revalidateConfiguration: revalidateConfiguration, repositoryProvider: repositoryProvider)
+        try await prepare(resource, in: record, revalidateConfiguration: revalidateConfiguration, repositoryProvider: repositoryProvider)
     }
 
-    private func prepare(_ resource: Resource, in record: WorkspaceRecord, visibility: GitChangeVisibility,
+    private func prepare(_ resource: Resource, in record: WorkspaceRecord,
                          revalidateConfiguration: Bool, repositoryProvider: (@Sendable () async throws -> RepositoryInspection)?) async throws -> ResourceReadContext {
         try service.checkCancellation()
         let token = generation
         let family = FamilyKey(resource: resource, record: record)
-        let key = ContextKey(family: family, resource: resource, application: Self.isApplication(visibility))
+        let key = ContextKey(family: family, resource: resource)
         var configurationReads: [ConfigurationScope: ConfigurationRead] = [:]
         var prepared = repositories[family]
         if let current = prepared, !current.isCurrent() { prepared = nil }
@@ -50,22 +50,16 @@ public actor ResourceReadSession {
                 try checkGeneration(token)
                 if let updated, updated.output == configuration.output { configuration = updated }
                 else {
-                    return try await rebuild(resource, record: record, visibility: visibility, family: family, key: key, prepared: prepared,
+                    return try await rebuild(resource, record: record, family: family, key: key, prepared: prepared,
                                              token: token, configurationReads: &configurationReads, repositoryProvider: repositoryProvider)
                 }
             }
-            let context: ResourceReadContext
-            if rebound.indexIsCurrent { context = rebound }
-            else {
-                context = try await service.refreshSubmoduleRead(rebound, visibility: visibility)
-                try checkGeneration(token)
-            }
-            guard context.isValid(in: record), configuration.isCurrent() else { throw MonoDeckError("resource-unavailable", .repositorySummaryIsUnavailable) }
-            contexts[key] = ContextEntry(context: context, configuration: configuration, familyVersion: prepared.version)
+            guard rebound.isValid(in: record), configuration.isCurrent() else { throw MonoDeckError("resource-unavailable", .repositorySummaryIsUnavailable) }
+            contexts[key] = ContextEntry(context: rebound, configuration: configuration, familyVersion: prepared.version)
             diagnostics?.record("prepare.hit")
-            return context
+            return rebound
         }
-        return try await rebuild(resource, record: record, visibility: visibility, family: family, key: key, prepared: prepared,
+        return try await rebuild(resource, record: record, family: family, key: key, prepared: prepared,
                                  token: token, configurationReads: &configurationReads, repositoryProvider: repositoryProvider)
     }
 
@@ -86,7 +80,7 @@ public actor ResourceReadSession {
         replacementDecisions[commonDirectory.path + "\n" + namespace] = (fingerprint, value)
     }
 
-    private func rebuild(_ resource: Resource, record: WorkspaceRecord, visibility: GitChangeVisibility, family: FamilyKey,
+    private func rebuild(_ resource: Resource, record: WorkspaceRecord, family: FamilyKey,
                          key: ContextKey, prepared: FamilyEntry?, token: Int,
                          configurationReads: inout [ConfigurationScope: ConfigurationRead],
                          repositoryProvider: (@Sendable () async throws -> RepositoryInspection)?) async throws -> ResourceReadContext {
@@ -112,7 +106,7 @@ public actor ResourceReadSession {
                 repositories[family] = entry
             } else { entry = nil; repositories.removeValue(forKey: family) }
         }
-        let context = try await service.prepareResourceRead(resource, in: record, repository: inspection, visibility: visibility)
+        let context = try await service.prepareResourceRead(resource, in: record, repository: inspection)
         try checkGeneration(token)
         if let entry, entry.isCurrent(),
            let configuration = try await readConfiguration(at: context.path, gitDirectory: context.gitDirectory,
@@ -168,10 +162,6 @@ public actor ResourceReadSession {
         guard !Task.isCancelled, token == generation else { throw MonoDeckError("cancelled", .operationCancelled) }
     }
 
-    private static func isApplication(_ visibility: GitChangeVisibility) -> Bool {
-        if case .application = visibility { return true }; return false
-    }
-
     private struct FamilyKey: Hashable {
         let workspace: String
         let repository: String?
@@ -185,7 +175,6 @@ public actor ResourceReadSession {
     private struct ContextKey: Hashable {
         let family: FamilyKey
         let resource: Resource
-        let application: Bool
     }
 
     private struct ConfigurationScope: Hashable {

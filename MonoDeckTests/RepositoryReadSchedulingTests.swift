@@ -11,7 +11,7 @@ import Testing
         let defaults = try #require(UserDefaults(suiteName: fixture.directory.lastPathComponent))
         defer { defaults.removePersistentDomain(forName: fixture.directory.lastPathComponent) }
         let clock = RepositoryReadClock(), counts = SchedulingReadCounts()
-        let details = GitBrowserModel(service: fixture.service, defaults: defaults, monitor: SchedulingResourceMonitor(),
+        let details = GitBrowserModel(service: fixture.service, defaults: defaults,
                                            now: { clock.now }, diagnostics: counts.diagnostics)
         let resource = Resource.group("cached")
         do {
@@ -62,7 +62,7 @@ import Testing
         let defaults = try #require(UserDefaults(suiteName: fixture.directory.lastPathComponent))
         defer { defaults.removePersistentDomain(forName: fixture.directory.lastPathComponent) }
         let history = SchedulingHistoryReader(git: fixture.service.git, blocked: true)
-        let details = GitBrowserModel(service: fixture.service, defaults: defaults, monitor: SchedulingResourceMonitor(), readCommits: { path, head, base in
+        let details = GitBrowserModel(service: fixture.service, defaults: defaults, readCommits: { path, head, base in
             try await history.read(at: path, head: head, base: base)
         })
         do {
@@ -104,7 +104,7 @@ import Testing
         let defaults = try #require(UserDefaults(suiteName: fixture.directory.lastPathComponent))
         defer { defaults.removePersistentDomain(forName: fixture.directory.lastPathComponent) }
         let clock = RepositoryReadClock()
-        let details = GitBrowserModel(service: fixture.service, defaults: defaults, monitor: SchedulingResourceMonitor(), now: { clock.now })
+        let details = GitBrowserModel(service: fixture.service, defaults: defaults, now: { clock.now })
         do {
             details.setPreloadScope(in: record, including: [resource])
             details.drainPreload()
@@ -158,7 +158,7 @@ import Testing
         defer { defaults.removePersistentDomain(forName: fixture.directory.lastPathComponent) }
         let clock = RepositoryReadClock()
         let history = SchedulingHistoryReader(git: fixture.service.git, blocked: true)
-        let details = GitBrowserModel(service: fixture.service, defaults: defaults, monitor: SchedulingResourceMonitor(), readCommits: { path, head, base in
+        let details = GitBrowserModel(service: fixture.service, defaults: defaults, readCommits: { path, head, base in
             try await history.read(at: path, head: head, base: base)
         }, now: { clock.now })
         do {
@@ -168,7 +168,7 @@ import Testing
             try #require(await history.started == 2)
             try Data("new change".utf8).write(to: path.appending(path: "new.txt"))
             try Data().write(to: blocked)
-            details.request(.workingTree)
+            details.refresh(resource, in: record)
             await history.release()
             let statusDeadline = ContinuousClock.now.advanced(by: .seconds(10))
             while !PathSafety.exists(started), ContinuousClock.now < statusDeadline { try await Task.sleep(for: .milliseconds(10)) }
@@ -200,7 +200,7 @@ import Testing
         let defaults = try #require(UserDefaults(suiteName: fixture.directory.lastPathComponent))
         defer { defaults.removePersistentDomain(forName: fixture.directory.lastPathComponent) }
         let history = SchedulingHistoryReader(git: fixture.service.git, blocked: true)
-        let details = GitBrowserModel(service: fixture.service, defaults: defaults, monitor: SchedulingResourceMonitor(), readCommits: { path, head, base in
+        let details = GitBrowserModel(service: fixture.service, defaults: defaults, readCommits: { path, head, base in
             try await history.read(at: path, head: head, base: base)
         })
         details.refresh(.repository("repo"), in: record)
@@ -261,9 +261,4 @@ private actor SchedulingHistoryReader {
         while blocked { try await Task.sleep(for: .milliseconds(10)) }
         return try await git.commits(at: path, head: head, base: base, limit: nil)
     }
-}
-
-private final class SchedulingResourceMonitor: ResourceChangeMonitoring, @unchecked Sendable {
-    func start(_ context: ResourceReadContext, excludedDirectories: [URL], onChange: @escaping @Sendable (ResourceChangeEvent) -> Void) -> Bool { true }
-    func stop() {}
 }

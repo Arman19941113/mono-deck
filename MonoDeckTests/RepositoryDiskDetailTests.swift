@@ -12,7 +12,7 @@ import Testing
         let resource = Resource.repository("repo"), path = record.repositoryURL("repo")
         let reader = DiskDetailHistoryReader(git: fixture.service.git)
         let cache = RepositoryDiskCache(directory: fixture.directory.appending(path: "detail-cache"))
-        let details = GitBrowserModel(service: fixture.service, defaults: defaults, monitor: DiskDetailMonitor(), readCommits: { path, head, base in
+        let details = GitBrowserModel(service: fixture.service, defaults: defaults, readCommits: { path, head, base in
             try await reader.read(at: path, head: head, base: base)
         }, cache: cache)
         do {
@@ -61,7 +61,7 @@ import Testing
         reader.blocked = true
         let cache = RepositoryDiskCache(directory: fixture.directory.appending(path: "detail-cache"))
         let now = ContinuousClock.now
-        let details = GitBrowserModel(service: fixture.service, defaults: defaults, monitor: DiskDetailMonitor(), readCommits: { path, head, base in
+        let details = GitBrowserModel(service: fixture.service, defaults: defaults, readCommits: { path, head, base in
             try await reader.read(at: path, head: head, base: base)
         }, cache: cache, now: { now })
         do {
@@ -113,7 +113,7 @@ import Testing
         let defaults = try preferences(fixture)
         defer { defaults.removePersistentDomain(forName: fixture.directory.lastPathComponent) }
         let cache = RepositoryDiskCache(directory: fixture.directory.appending(path: "detail-cache"))
-        let first = GitBrowserModel(service: fixture.service, defaults: defaults, monitor: DiskDetailMonitor(), cache: cache)
+        let first = GitBrowserModel(service: fixture.service, defaults: defaults, cache: cache)
         first.refresh(resource, in: record)
         await first.detailTask?.value
         let original = try #require(first.detail.summary?.headOID)
@@ -128,7 +128,7 @@ import Testing
         var runner = fixture.service.git.runner
         runner.diagnostics = checks.diagnostics
         let service = WorkspaceService(store: fixture.service.store, git: Git(runner: runner))
-        let reopened = GitBrowserModel(service: service, defaults: defaults, monitor: DiskDetailMonitor(),
+        let reopened = GitBrowserModel(service: service, defaults: defaults,
                                        cache: RepositoryDiskCache(directory: fixture.directory.appending(path: "detail-cache")))
         reopened.refresh(resource, in: record)
         var waiterFinished = false
@@ -161,7 +161,7 @@ import Testing
         let directory = fixture.directory.appending(path: "detail-cache")
         let initialCache = RepositoryDiskCache(directory: directory)
         _ = try await fixture.service.git.run(["commit", "--allow-empty", "-m", "preloaded head"], at: record.repositoryURL("repo"))
-        let first = GitBrowserModel(service: fixture.service, defaults: defaults, monitor: DiskDetailMonitor(), cache: initialCache)
+        let first = GitBrowserModel(service: fixture.service, defaults: defaults, cache: initialCache)
         first.setPreloadScope(in: record, including: [.repository("repo")])
         first.drainPreload()
         await first.detailPreloadTask?.value
@@ -178,7 +178,7 @@ import Testing
         let context = try await fixture.service.prepareResourceRead(.repository("repo"), in: record)
         let saved = await reopenedCache.loadDetail(for: try RepositoryCacheIdentity(context: context))
         #expect(saved?.uniqueCommits?.map(\.subject) == ["preloaded head"] && saved?.changes.isEmpty == true)
-        let reopened = GitBrowserModel(service: fixture.service, defaults: defaults, monitor: DiskDetailMonitor(), readCommits: { path, head, base in
+        let reopened = GitBrowserModel(service: fixture.service, defaults: defaults, readCommits: { path, head, base in
             try await reader.read(at: path, head: head, base: base)
         }, cache: reopenedCache)
         reopened.refresh(.repository("repo"), in: record)
@@ -195,7 +195,7 @@ import Testing
         let defaults = try preferences(fixture)
         defer { defaults.removePersistentDomain(forName: fixture.directory.lastPathComponent) }
         let directory = fixture.directory.appending(path: "detail-cache")
-        let first = GitBrowserModel(service: fixture.service, defaults: defaults, monitor: DiskDetailMonitor(),
+        let first = GitBrowserModel(service: fixture.service, defaults: defaults,
                                     cache: RepositoryDiskCache(directory: directory))
         first.refresh(.repository("repo"), in: record)
         await first.detailTask?.value
@@ -209,7 +209,7 @@ import Testing
         let reader = DiskDetailHistoryReader(git: fixture.service.git)
         reader.failure = MonoDeckError("history-failed", "History temporarily unavailable.")
         reader.failuresRemaining = failures
-        let reopened = GitBrowserModel(service: fixture.service, defaults: defaults, monitor: DiskDetailMonitor(), readCommits: { path, head, base in
+        let reopened = GitBrowserModel(service: fixture.service, defaults: defaults, readCommits: { path, head, base in
             try await reader.read(at: path, head: head, base: base)
         }, cache: RepositoryDiskCache(directory: directory))
         do {
@@ -217,14 +217,14 @@ import Testing
             await reopened.detailTask?.value
             #expect(reader.calls == 2 && reopened.detail.summary?.headOID == original)
             #expect(reopened.failureForPresentation?.keepsPreviousResult == true)
-            reopened.pause(keepingMonitoring: true)
+            reopened.pause(keepingCurrentDetail: true)
             reader.failure = nil
             reopened.resume()
             let retry = try #require(reopened.detailTask)
             await retry.value
             #expect(reader.calls == 2 + failures && reopened.detail.summary?.headOID == updated)
             #expect(reopened.detail.changes?.map(\.path) == ["new.txt"] && reopened.pendingFailure == nil)
-            reopened.pause(keepingMonitoring: true)
+            reopened.pause(keepingCurrentDetail: true)
             reopened.resume()
             #expect(reopened.detailTask == nil && reader.calls == 2 + failures)
             reopened.stop(); await reopened.waitForReads()
@@ -243,7 +243,7 @@ import Testing
         _ = try await fixture.service.git.run(["commit", "--allow-empty", "-m", "old head"], at: path)
         let reader = DiskDetailHistoryReader(git: fixture.service.git)
         let cache = RepositoryDiskCache(directory: fixture.directory.appending(path: "detail-cache"))
-        let details = GitBrowserModel(service: fixture.service, defaults: defaults, monitor: DiskDetailMonitor(), readCommits: { path, head, base in
+        let details = GitBrowserModel(service: fixture.service, defaults: defaults, readCommits: { path, head, base in
             try await reader.read(at: path, head: head, base: base)
         }, cache: cache)
         details.refresh(.repository("repo"), in: record)
@@ -253,7 +253,7 @@ import Testing
         let updated = try #require(await fixture.service.git.oid("HEAD", at: path))
         try Data("new".utf8).write(to: path.appending(path: "new.txt"))
         reader.failure = MonoDeckError("history-failed", "History temporarily unavailable.")
-        details.request(.structure)
+        details.refresh(.repository("repo"), in: record)
         await details.detailTask?.value
         #expect(details.detail.summary?.headOID == original && details.detail.uniqueCommits?.map(\.subject) == ["old head"])
         #expect(details.detail.changes?.isEmpty == true)
@@ -266,7 +266,7 @@ import Testing
         #expect(stored?.summary.headOID == original)
 
         reader.failure = nil
-        details.request(.structure)
+        details.refresh(.repository("repo"), in: record)
         await details.detailTask?.value
         #expect(details.detail.summary?.headOID == updated && details.detail.changes?.map(\.path) == ["new.txt"])
         #expect(details.pendingFailure == nil)
@@ -280,7 +280,7 @@ import Testing
         defer { defaults.removePersistentDomain(forName: fixture.directory.lastPathComponent) }
         let reader = DiskDetailHistoryReader(git: fixture.service.git)
         reader.failure = MonoDeckError("history-failed", "History temporarily unavailable.")
-        let details = GitBrowserModel(service: fixture.service, defaults: defaults, monitor: DiskDetailMonitor(), readCommits: { path, head, base in
+        let details = GitBrowserModel(service: fixture.service, defaults: defaults, readCommits: { path, head, base in
             try await reader.read(at: path, head: head, base: base)
         })
         let resource = Resource.repository("repo")
@@ -294,31 +294,31 @@ import Testing
         #expect(details.pendingFailure == nil)
         details.dismissFailure()
 
-        details.request(.structure)
+        details.refresh(resource, in: record)
         await details.detailTask?.value
         #expect(details.pendingFailure == nil)
         details.refresh(resource, in: record, userInitiated: true)
         await details.detailTask?.value
         #expect(details.pendingFailure?.userInitiated == true)
-        details.request(.structure)
+        details.refresh(resource, in: record)
         await details.detailTask?.value
         #expect(details.takeFailureForPresentation()?.error.code == "history-failed")
         details.dismissFailure()
 
         reader.failure = MonoDeckError("other-failure", "Another error.")
-        details.request(.structure)
+        details.refresh(resource, in: record)
         await details.detailTask?.value
         #expect(details.takeFailureForPresentation()?.error.code == "other-failure")
         details.dismissFailure()
         reader.failure = nil
-        details.request(.structure)
+        details.refresh(resource, in: record)
         await details.detailTask?.value
         #expect(details.pendingFailure == nil && details.detail.uniqueCommitsError == nil)
 
         let path = record.repositoryURL("repo")
         _ = try await fixture.service.git.run(["commit", "--allow-empty", "-m", "invalidate history"], at: path)
         reader.failure = MonoDeckError("other-failure", "Another error.")
-        details.request(.structure)
+        details.refresh(resource, in: record)
         await details.detailTask?.value
         #expect(details.takeFailureForPresentation()?.error.code == "other-failure")
         details.stop(); await details.waitForReads()
@@ -332,7 +332,7 @@ import Testing
         defer { defaults.removePersistentDomain(forName: fixture.directory.lastPathComponent) }
         let reader = DiskDetailHistoryReader(git: fixture.service.git)
         reader.failure = MonoDeckError("history-failed", "History temporarily unavailable.")
-        let details = GitBrowserModel(service: fixture.service, defaults: defaults, monitor: DiskDetailMonitor(), readCommits: { path, head, base in
+        let details = GitBrowserModel(service: fixture.service, defaults: defaults, readCommits: { path, head, base in
             try await reader.read(at: path, head: head, base: base)
         })
         let resource = Resource.repository("repo")
@@ -347,7 +347,7 @@ import Testing
         do {
             try await eventually { reader.calls == calls + 2 }
             #expect(details.detailLoading && details.pendingFailure == nil)
-            details.request(.structure)
+            details.refresh(resource, in: record)
             reader.blocked = false
             await details.detailTask?.value
             #expect(reader.calls == calls + 4 && !details.detailLoading)
@@ -369,7 +369,7 @@ import Testing
         let path = record.repositoryURL("repo")
         let head = try #require(await fixture.service.git.oid("HEAD", at: path))
         let cache = SuspendedDetailCache(snapshot: .init(summary: .init(head: "main", headOID: head, base: "origin/main", baseOID: head), changes: [], uniqueCommits: [], behindCommits: [], observedAt: Date()))
-        let details = GitBrowserModel(service: fixture.service, defaults: defaults, monitor: DiskDetailMonitor(), cache: cache)
+        let details = GitBrowserModel(service: fixture.service, defaults: defaults, cache: cache)
         do {
             details.refresh(.repository("repo"), in: record)
             let deadline = ContinuousClock.now.advanced(by: .seconds(10))
@@ -397,14 +397,14 @@ import Testing
         let record = try fixture.service.store.load(fixture.root)
         let defaults = try preferences(fixture)
         defer { defaults.removePersistentDomain(forName: fixture.directory.lastPathComponent) }
-        let details = GitBrowserModel(service: fixture.service, defaults: defaults, monitor: DiskDetailMonitor())
+        let details = GitBrowserModel(service: fixture.service, defaults: defaults)
         details.refresh(.repository("repo"), in: record)
         await details.detailTask?.value
         try #require(details.detail.summary != nil)
         let gitDirectory = record.repositoryURL("repo").appending(path: ".git")
         try FileManager.default.moveItem(at: gitDirectory, to: fixture.directory.appending(path: "original-git"))
         try FileManager.default.createDirectory(at: gitDirectory, withIntermediateDirectories: false)
-        details.request(.structure)
+        details.refresh(.repository("repo"), in: record)
         await details.detailTask?.value
         #expect(details.detail.summary == nil && details.detail.summaryError != nil)
         #expect(details.failureForPresentation?.keepsPreviousResult == false)
@@ -420,7 +420,7 @@ import Testing
         let head = try #require(await fixture.service.git.oid("HEAD", at: path))
         let cache = SuspendedDetailCache(snapshot: .init(summary: .init(head: "main", headOID: head, base: "origin/main", baseOID: head),
                                                         changes: [], uniqueCommits: [], behindCommits: [], observedAt: Date()))
-        let details = GitBrowserModel(service: fixture.service, defaults: defaults, monitor: DiskDetailMonitor(), cache: cache)
+        let details = GitBrowserModel(service: fixture.service, defaults: defaults, cache: cache)
         do {
             details.refresh(.repository("repo"), in: record)
             let deadline = ContinuousClock.now.advanced(by: .seconds(10))
@@ -453,7 +453,7 @@ import Testing
         let head = try #require(await fixture.service.git.oid("HEAD", at: path))
         let cache = RepositoryDiskCache(directory: fixture.directory.appending(path: "detail-cache"))
         let reader = DiskDetailHistoryReader(git: fixture.service.git)
-        let details = GitBrowserModel(service: fixture.service, defaults: defaults, monitor: DiskDetailMonitor(), readCommits: { path, head, base in
+        let details = GitBrowserModel(service: fixture.service, defaults: defaults, readCommits: { path, head, base in
             try await reader.read(at: path, head: head, base: base)
         }, cache: cache)
         do {
@@ -465,20 +465,20 @@ import Testing
             let stored = await cache.loadHistory(for: key)
             #expect(reader.calls == 2 && stored != nil)
             try Data((head + "\n").utf8).write(to: context.commonDirectory.appending(path: "shallow"))
-            details.request(.structure)
+            details.refresh(.repository("repo"), in: record)
             await details.detailTask?.value
             #expect(reader.calls == 4)
             #expect(await cache.loadHistory(for: key) == nil)
-            details.request(.structure)
+            details.refresh(.repository("repo"), in: record)
             await details.detailTask?.value
             #expect(reader.calls == 6)
 
             try FileManager.default.removeItem(at: context.commonDirectory.appending(path: "shallow"))
-            details.request(.structure)
+            details.refresh(.repository("repo"), in: record)
             await details.detailTask?.value
             #expect(reader.calls == 8)
             #expect(await cache.loadHistory(for: key) != nil)
-            details.request(.structure)
+            details.refresh(.repository("repo"), in: record)
             await details.detailTask?.value
             #expect(reader.calls == 8)
             details.stop(); await details.waitForReads(); await details.flushCache()
@@ -521,11 +521,6 @@ enum CompletePreloadCancellation: CaseIterable {
         }
         return try await git.commits(at: path, head: head, base: base, limit: nil)
     }
-}
-
-private final class DiskDetailMonitor: ResourceChangeMonitoring, @unchecked Sendable {
-    func start(_ context: ResourceReadContext, excludedDirectories: [URL], onChange: @escaping @Sendable (ResourceChangeEvent) -> Void) -> Bool { true }
-    func stop() {}
 }
 
 private final class DiskDetailGitCheckGate: @unchecked Sendable {

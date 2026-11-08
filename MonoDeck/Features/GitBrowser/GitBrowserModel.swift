@@ -6,7 +6,6 @@ import Observation
 final class GitBrowserModel {
     private let service: WorkspaceService
     private let defaults: UserDefaults
-    private let monitor: any ResourceChangeMonitoring
     private let readCommits: @Sendable (URL, String, String) async throws -> [GitCommit]
     private let now: @MainActor () -> ContinuousClock.Instant
     private let date: @MainActor () -> Date
@@ -27,7 +26,7 @@ final class GitBrowserModel {
     private(set) var pendingFailure: GitBrowserFailure?
     private(set) var changesLoading = false
     private(set) var summaryLoading = false
-    var hasActiveReads: Bool { detailTask != nil || detailPreloadTask != nil || snapshotPreloadTask != nil || eventFilterTask != nil || cancellationDrain != nil || monitoring || fallbackTask != nil }
+    var hasActiveReads: Bool { detailTask != nil || detailPreloadTask != nil || snapshotPreloadTask != nil || cancellationDrain != nil }
     var needsCacheTermination: Bool { diskCache != nil }
     var snapshotLoading: Bool { changesLoading || summaryLoading }
     var detailLoading: Bool { detailTask != nil }
@@ -36,15 +35,10 @@ final class GitBrowserModel {
     private(set) var detailTask: Task<Void, Never>?
     private(set) var detailPreloadTask: Task<Void, Never>?
     private(set) var snapshotPreloadTask: Task<Void, Never>?
-    private var debounceTask: Task<Void, Never>?
-    private var fallbackTask: Task<Void, Never>?
-    private var changeBurstStart: ContinuousClock.Instant?
-    private var pendingChange: ResourceChange?
+    private var pendingRefresh = false
     private var revalidateConfiguration = false
     private var userInitiatedRefresh = false
     private var presentedFailure: GitBrowserFailure?
-    private var pendingCandidates = Set<String>()
-    private var eventFilterTask: Task<Void, Never>?
     private var cancellationDrain: Task<Void, Never>?
     private var drainID = UUID()
     private var generation = 0
@@ -57,8 +51,6 @@ final class GitBrowserModel {
     private var pendingSnapshots = Set<Resource>()
     private var runningSnapshot: Resource?
     private var snapshotPreloadGeneration = 0
-    private var readContext: ResourceReadContext?
-    private var monitoring = false
     private var suspended = false
     private var active = true
     private var detailWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
@@ -75,12 +67,12 @@ final class GitBrowserModel {
         return "detail.\(workspace.root).\(selection.id).collapsedPaths"
     }
 
-    init(service: WorkspaceService, defaults: UserDefaults, monitor: any ResourceChangeMonitoring = ResourceChangeMonitor(),
+    init(service: WorkspaceService, defaults: UserDefaults,
          readCommits: (@Sendable (URL, String, String) async throws -> [GitCommit])? = nil,
          cache: (any RepositoryDetailCaching)? = nil,
          now: @escaping @MainActor () -> ContinuousClock.Instant = { .now }, date: @escaping @MainActor () -> Date = { Date() },
          diagnostics: RepositoryReadDiagnostics? = nil) {
-        self.service = service; self.defaults = defaults; self.monitor = monitor; self.now = now
+        self.service = service; self.defaults = defaults; self.now = now
         self.diskCache = cache; self.date = date; self.diagnostics = diagnostics
         readSession = ResourceReadSession(service: service, diagnostics: diagnostics)
         presentationCache = GitBrowserPresentation(diagnostics: diagnostics)
@@ -96,7 +88,7 @@ final class GitBrowserModel {
         let previousIdentities = identities(in: previous)
         let currentIdentities = identities(in: workspace)
         let contextChanged = rootChanged || selection.map { previousIdentities[$0] != currentIdentities[$0] } == true
-        if contextChanged { cancelCurrent(); pendingChange = selection == nil ? nil : .structure }
+        if contextChanged { cancelCurrent(); pendingRefresh = selection != nil }
         else { cancelPreload() }
         if rootChanged {
             pendingSessionInvalidations.formUnion(resources.keys)
@@ -134,7 +126,7 @@ final class GitBrowserModel {
         applyWorkspace(workspace)
         if changedSelection {
             cancelCurrent()
-            pendingChange = nil; revalidateConfiguration = false
+            pendingRefresh = false; revalidateConfiguration = false
             self.selection = selection
             let saved = selection.flatMap { resources[$0]?.lastSuccessfulDetail }
             if saved != nil { diagnostics?.record("detail.memory.hit") }
@@ -146,35 +138,32 @@ final class GitBrowserModel {
         if changedSelection, !userInitiated, active, !suspended, hasRecentDetailAttempt(for: selection),
            resources[selection]?.lastSuccessfulDetail != nil, let context = resources[selection]?.detailContext,
            context.isValid(in: workspace) {
-            readContext = context
-            startMonitoring(context, token: generation)
             diagnostics?.record("detail.selection.hit")
             onIdle?()
             return
         }
         userInitiatedRefresh = userInitiatedRefresh || userInitiated
         diagnostics?.record("detail.request.refresh")
-        request(.structure, revalidatingConfiguration: true)
+        requestRefresh()
     }
 
     func activate(_ selection: Resource?, in workspace: WorkspaceRecord?) {
         guard self.selection == selection, self.workspace == workspace else { refresh(selection, in: workspace); return }
         guard let selection else { return }
-        if !pendingCandidates.isEmpty { scheduleEventFilter() }
         guard detailTask == nil else { diagnostics?.record("detail.activation.join"); return }
         if hasRecentDetailAttempt(for: selection) {
             diagnostics?.record("detail.activation.hit")
             return
         }
         diagnostics?.record("detail.request.activation")
-        request(.structure, revalidatingConfiguration: true)
+        requestRefresh()
     }
 
-    func request(_ change: ResourceChange, revalidatingConfiguration: Bool = false) {
-        guard selection != nil, workspace != nil else { return }
-        pendingChange = (pendingChange ?? []).union(change)
-        revalidateConfiguration = revalidateConfiguration || revalidatingConfiguration
-        if let selection { markInvalidated(selection) }
+    private func requestRefresh() {
+        guard let selection, workspace != nil else { return }
+        pendingRefresh = true
+        revalidateConfiguration = true
+        markInvalidated(selection)
         cancelPreload()
         startRefresh()
     }
@@ -182,37 +171,34 @@ final class GitBrowserModel {
     func setActive(_ active: Bool, refresh: Bool = true) {
         let changed = self.active != active
         self.active = active
-        if !active { debounceTask?.cancel(); debounceTask = nil; changeBurstStart = nil; cancelPreload() }
+        if !active { cancelPreload() }
         else if changed && refresh { activate(selection, in: workspace) }
     }
 
-    func pause(keepingMonitoring: Bool = false) {
+    func pause(keepingCurrentDetail: Bool = false) {
         suspended = true
-        if keepingMonitoring, monitoring, detailTask == nil, pendingChange == nil,
-           pendingCandidates.isEmpty, eventFilterTask == nil, let selection, let entry = resources[selection],
-           entry.lastDetailAttemptSucceeded, entry.lastSuccessfulDetail != nil, let workspace, let readContext,
-           readContext.isValid(in: workspace) {
+        if keepingCurrentDetail, detailTask == nil, !pendingRefresh, let selection, let entry = resources[selection],
+           entry.lastDetailAttemptSucceeded, entry.lastSuccessfulDetail != nil, !entry.detailInvalidated, let workspace,
+           entry.detailContext?.isValid(in: workspace) == true {
             cancelPreload()
-            debounceTask?.cancel(); debounceTask = nil; changeBurstStart = nil
             return
         }
-        pendingChange = .structure
+        pendingRefresh = true
         cancelCurrent()
     }
 
     func resume() {
-        if suspended, pendingChange == nil, selection != nil, let workspace,
-           !monitoring || readContext?.isValid(in: workspace) != true {
-            pendingChange = .structure
+        if suspended, !pendingRefresh, let selection, let workspace,
+           resources[selection]?.detailContext?.isValid(in: workspace) != true {
+            pendingRefresh = true
             revalidateConfiguration = true
         }
         suspended = false
-        if !pendingCandidates.isEmpty { scheduleEventFilter() }
         startRefresh()
     }
 
     func stop() {
-        suspended = true; pendingChange = nil
+        suspended = true; pendingRefresh = false
         cancelCurrent()
     }
 
@@ -238,7 +224,7 @@ final class GitBrowserModel {
     func flushCache() async { await diskCache?.flush() }
 
     var failureForPresentation: GitBrowserFailure? {
-        guard let failure = pendingFailure, active, !suspended, !detailLoading, pendingChange == nil,
+        guard let failure = pendingFailure, active, !suspended, !detailLoading, !pendingRefresh,
               isCurrent(failure.generation, resource: failure.resource, root: failure.workspace) else { return nil }
         return failure
     }
@@ -306,7 +292,7 @@ final class GitBrowserModel {
     }
 
     func drainPreload() {
-        guard let workspace, detailTask == nil, selection == nil || pendingChange == nil,
+        guard let workspace, detailTask == nil, selection == nil || !pendingRefresh,
               detailPreloadTask == nil, !suspended, active else { return }
         let requested = pendingPreload.intersection(preloadScope)
         if !requested.isEmpty, snapshotPreloadTask != nil { cancelSnapshotPreload() }
@@ -379,7 +365,7 @@ final class GitBrowserModel {
                 let revision = resources[resource]?.detailRevision ?? 0
                 let valid = { self.isPreloading(token, resource: resource, root: workspace.root, revision: revision) }
                 diagnostics?.record("detail.preload.read")
-                guard var result = await readResourceDetail(resource, in: workspace, initial: .init(), change: .structure,
+                guard var result = await readResourceDetail(resource, in: workspace, initial: .init(),
                                                            revalidatingConfiguration: true, isValid: valid), valid() else { return }
                 if result.needsRefresh {
                     markDetailInvalidated(resource)
@@ -433,13 +419,13 @@ final class GitBrowserModel {
         if !runningPreload.isDisjoint(with: affected) || runningSnapshot.map(affected.contains) == true { cancelPreload() }
         if let selection, affected.contains(selection) {
             cancelCurrent()
-            pendingChange = .structure
+            pendingRefresh = true
             revalidateConfiguration = true
         }
     }
 
     private func startRefresh() {
-        guard detailTask == nil, !suspended, active, pendingChange != nil, let selection, let workspace else { return }
+        guard detailTask == nil, !suspended, active, pendingRefresh, let selection, let workspace else { return }
         let token = generation
         changesLoading = true
         userInitiatedRefresh = userInitiatedRefresh || pendingFailure?.userInitiated == true
@@ -448,51 +434,41 @@ final class GitBrowserModel {
             await invalidateDiskDetails()
             await invalidateSessionReads()
             guard isCurrent(token, resource: selection, root: workspace.root) else { return }
-            while active, !suspended, let change = pendingChange {
-                pendingChange = nil
+            while active, !suspended, pendingRefresh {
+                pendingRefresh = false
                 let revalidate = revalidateConfiguration
                 revalidateConfiguration = false
                 changesLoading = true
                 diagnostics?.record("detail.read")
-                await readSnapshot(selection, in: workspace, change: change, revalidatingConfiguration: revalidate, token: token)
+                await readSnapshot(selection, in: workspace, revalidatingConfiguration: revalidate, token: token)
                 guard isCurrent(token, resource: selection, root: workspace.root) else { return }
             }
             guard isCurrent(token, resource: selection, root: workspace.root) else { return }
             detailTask = nil; changesLoading = false; summaryLoading = false
-            if pendingChange == nil { userInitiatedRefresh = false }
+            if !pendingRefresh { userInitiatedRefresh = false }
             finishDetail()
             onIdle?()
         }
     }
 
-    private func readSnapshot(_ resource: Resource, in workspace: WorkspaceRecord, change: ResourceChange, revalidatingConfiguration: Bool, token: Int) async {
+    private func readSnapshot(_ resource: Resource, in workspace: WorkspaceRecord, revalidatingConfiguration: Bool, token: Int) async {
         let readStarted = ContinuousClock.now
         let revision = resources[resource]?.detailRevision ?? 0
         let valid = { self.isCurrent(token, resource: resource, root: workspace.root) }
-        guard let result = await readResourceDetail(resource, in: workspace, initial: detail, change: change,
+        guard let result = await readResourceDetail(resource, in: workspace, initial: detail,
                                                    revalidatingConfiguration: revalidatingConfiguration, isValid: valid,
                                                    progress: { progress in
             switch progress {
-            case .restored(let saved): self.detail = saved
-            case .prepared(let context, let saved):
-                if self.readContext == nil || !change.intersection([.structure, .index, .configuration]).isEmpty || revalidatingConfiguration {
-                    self.stopMonitoring()
-                }
-                self.readContext = context
-                self.detail = saved
-                if !self.monitoring { self.startMonitoring(context, token: token) }
+            case .showingSnapshot(let saved): self.detail = saved
             case .statusRead: self.changesLoading = false
             case .readingSummary: self.summaryLoading = true
             case .summaryRead: self.summaryLoading = false
             }
         }), valid() else { return }
         let next = result.detail
-        if result.context == nil {
-            if result.discardsSavedDetail { clearDetail() }
-            readContext = nil; stopMonitoring(); startFallback(token: token)
-        }
+        if result.context == nil, result.discardsSavedDetail { clearDetail() }
         if result.needsRefresh {
-            pendingChange = (pendingChange ?? []).union(.summary)
+            pendingRefresh = true
             markInvalidated(resource)
         }
         if revision == resources[resource]?.detailRevision {
@@ -513,14 +489,14 @@ final class GitBrowserModel {
         changesLoading = false; summaryLoading = false
         await invalidateDiskDetails()
         guard valid() else { return }
-        updateState(resource, changes: next.changes, error: next.changesError, invalidated: pendingChange != nil)
+        updateState(resource, changes: next.changes, error: next.changesError, invalidated: pendingRefresh)
         diagnostics?.record("detail.completed", duration: readStarted.duration(to: .now))
-        if pendingChange == nil, let error = next.readError { enqueueFailure(error, resource: resource, root: workspace.root, token: token) }
+        if !pendingRefresh, let error = next.readError { enqueueFailure(error, resource: resource, root: workspace.root, token: token) }
         finishDetail()
     }
 
     private func readResourceDetail(_ resource: Resource, in workspace: WorkspaceRecord, initial: GitBrowserState,
-                                    change: ResourceChange, revalidatingConfiguration: Bool, isValid: () -> Bool,
+                                    revalidatingConfiguration: Bool, isValid: () -> Bool,
                                     progress: (DetailReadProgress) -> Void = { _ in }) async -> DetailReadResult? {
         guard isValid() else { return nil }
         var result = DetailReadResult(detail: initial)
@@ -535,12 +511,12 @@ final class GitBrowserModel {
                     resources[resource, default: .init()].identity = identity
                     resources[resource, default: .init()].lastSuccessfulDetail = saved
                     result.detail = GitBrowserState(saved)
-                    progress(.restored(result.detail))
+                    progress(.showingSnapshot(result.detail))
                 }
             }
             let started = ContinuousClock.now
-            let context = try await readSession.prepare(resource, in: workspace, visibility: .application,
-                                                        revalidateConfiguration: revalidatingConfiguration || change.contains(.configuration))
+            let context = try await readSession.prepare(resource, in: workspace,
+                                                        revalidateConfiguration: revalidatingConfiguration)
             guard isValid() else { return nil }
             diagnostics?.record("detail.prepare", duration: started.duration(to: .now))
             let identity = try RepositoryCacheIdentity(context: context)
@@ -565,23 +541,20 @@ final class GitBrowserModel {
                     result.detail = GitBrowserState(saved)
                 }
             }
-            progress(.prepared(context, result.detail))
+            progress(.showingSnapshot(result.detail))
             let statusStarted = ContinuousClock.now
             let state = try await service.workingState(context, visibility: .application)
             diagnostics?.record("detail.status", duration: statusStarted.duration(to: .now))
             guard isValid() else { return nil }
-            let headChanged = result.detail.summary?.headOID != state.headOID || result.detail.summary?.head != state.head
             result.detail.changes = state.changes; result.detail.changesError = nil
             statusRead = true
             progress(.statusRead)
-            if !change.intersection([.summary, .configuration, .structure]).isEmpty || headChanged || result.detail.summary == nil {
-                progress(.readingSummary)
-                let summaryStarted = ContinuousClock.now
-                result.detail.summary = try await service.summary(context, workingState: state)
-                diagnostics?.record("detail.summary", duration: summaryStarted.duration(to: .now))
-                guard isValid() else { return nil }
-                result.detail.summaryError = nil
-            }
+            progress(.readingSummary)
+            let summaryStarted = ContinuousClock.now
+            result.detail.summary = try await service.summary(context, workingState: state)
+            diagnostics?.record("detail.summary", duration: summaryStarted.duration(to: .now))
+            guard isValid() else { return nil }
+            result.detail.summaryError = nil
             progress(.summaryRead)
             let history = await readHistory(result.detail, context: context, identity: identity, isValid: isValid)
             guard isValid() else { return nil }
@@ -722,124 +695,12 @@ final class GitBrowserModel {
         catch { return .failure(.wrap(error)) }
     }
 
-    private func startMonitoring(_ context: ResourceReadContext, token: Int) {
-        let excluded = context.resource.kind == .group ? (context.workspace.groups[context.resource.groupName ?? ""]?.repositoryIDs ?? []).map { context.workspace.memberURL(context.resource.groupName!, $0) } : []
-        monitoring = monitor.start(context, excludedDirectories: excluded) { [weak self] event in
-            Task { @MainActor [weak self] in
-                guard let self, self.generation == token else { return }
-                self.received(event)
-            }
-        }
-        if monitoring { fallbackTask?.cancel(); fallbackTask = nil }
-        else { startFallback(token: token) }
-    }
-
-    private func received(_ event: ResourceChangeEvent) {
-        if !event.change.isEmpty {
-            diagnostics?.record("detail.request.event")
-            pendingCandidates = []
-            cancelEventFilter()
-            pendingChange = (pendingChange ?? []).union(event.change)
-            if let selection { markInvalidated(selection) }
-            guard active, !suspended else { return }
-            if !event.change.intersection([.summary, .index, .configuration, .structure]).isEmpty {
-                debounceTask?.cancel(); debounceTask = nil; changeBurstStart = nil
-                cancelPreload(); startRefresh()
-                return
-            }
-        } else {
-            diagnostics?.record("events.candidates", count: event.candidatePaths.count)
-            pendingCandidates.formUnion(event.candidatePaths)
-            if pendingCandidates.count > ResourceChangeEvent.maximumCandidateCount
-                || pendingCandidates.reduce(0, { $0 + $1.utf8.count + 1 }) > ResourceChangeEvent.maximumCandidateBytes {
-                pendingCandidates = []
-                pendingChange = (pendingChange ?? []).union(.workingTree)
-                if let selection { markInvalidated(selection) }
-            }
-            guard active, !suspended else { return }
-        }
-        scheduleEventFilter()
-    }
-
-    private func scheduleEventFilter() {
-        guard active, !suspended else { return }
-        let instant = ContinuousClock.now
-        if changeBurstStart == nil { changeBurstStart = instant }
-        let deadline = min(instant.advanced(by: .milliseconds(150)), changeBurstStart!.advanced(by: .seconds(1)))
-        debounceTask?.cancel()
-        debounceTask = Task { [weak self] in
-            do { try await Task.sleep(until: deadline, clock: .continuous) } catch { return }
-            guard !Task.isCancelled, let self else { return }
-            self.changeBurstStart = nil; self.debounceTask = nil
-            self.filterCandidateEvents()
-        }
-    }
-
-    private func filterCandidateEvents() {
-        guard eventFilterTask == nil, active, !suspended else { return }
-        guard !pendingCandidates.isEmpty, let context = readContext else {
-            if pendingChange != nil { cancelPreload(); startRefresh() }
-            return
-        }
-        let candidates = pendingCandidates
-        pendingCandidates = []
-        let token = generation
-        eventFilterTask = Task { [weak self] in
-            guard let self else { return }
-            let needsRefresh: Bool
-            do {
-                let ignored = try await service.git.ignoredPaths(Array(candidates), at: context.path)
-                needsRefresh = !candidates.isSubset(of: ignored)
-                diagnostics?.record("events.ignored", count: ignored.count)
-            } catch {
-                guard !Task.isCancelled else { return }
-                needsRefresh = true
-            }
-            guard isCurrent(token, resource: context.resource, root: context.workspace.root) else { return }
-            eventFilterTask = nil
-            if needsRefresh { request(.workingTree) }
-            else if pendingChange != nil { cancelPreload(); startRefresh() }
-            if !pendingCandidates.isEmpty { filterCandidateEvents() }
-        }
-    }
-
-    private func cancelEventFilter() {
-        let task = eventFilterTask
-        task?.cancel(); eventFilterTask = nil
-        if let task { drainCancelledTask(task) }
-    }
-
-    private func startFallback(token: Int) {
-        guard fallbackTask == nil else { return }
-        fallbackTask = Task { [weak self] in
-            while !Task.isCancelled {
-                do { try await Task.sleep(for: .seconds(2)) } catch { return }
-                guard let self, self.generation == token else { return }
-                if self.active, !self.suspended {
-                    self.diagnostics?.record("detail.request.fallback")
-                    self.request(.structure)
-                }
-            }
-        }
-    }
-
-    private func stopMonitoring() {
-        monitor.stop(); monitoring = false
-        fallbackTask?.cancel(); fallbackTask = nil
-        debounceTask?.cancel(); debounceTask = nil; changeBurstStart = nil
-        cancelEventFilter()
-    }
-
     private func cancelCurrent() {
         pendingFailure = nil; userInitiatedRefresh = false
-        if (!pendingCandidates.isEmpty || eventFilterTask != nil), let selection {
-            markInvalidated(selection)
-        }
         let task = detailTask
         task?.cancel()
         detailTask = nil; cancelPreload()
-        generation += 1; readContext = nil; pendingCandidates = []
-        stopMonitoring()
+        generation += 1
         changesLoading = false; summaryLoading = false
         finishDetail()
         if let task { drainCancelledTask(task) }
@@ -930,7 +791,7 @@ final class GitBrowserModel {
     }
 
     private func hasRecentDetailAttempt(for resource: Resource) -> Bool {
-        guard pendingChange == nil, let entry = resources[resource], !entry.detailInvalidated,
+        guard !pendingRefresh, let entry = resources[resource], !entry.detailInvalidated,
               entry.identity?.isCurrent() != false, entry.detailStatusIdentity == statusIdentity(for: resource),
               let attempted = entry.lastDetailAttempt else { return false }
         return attempted.duration(to: now()) < .seconds(10)
@@ -953,8 +814,7 @@ final class GitBrowserModel {
     }
 
     private enum DetailReadProgress {
-        case restored(GitBrowserState)
-        case prepared(ResourceReadContext, GitBrowserState)
+        case showingSnapshot(GitBrowserState)
         case statusRead, readingSummary, summaryRead
     }
 

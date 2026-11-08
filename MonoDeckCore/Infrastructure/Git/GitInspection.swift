@@ -178,20 +178,6 @@ extension Git {
         let index: UInt8
         let workingTree: UInt8
     }
-    public func submodulePaths(at path: URL) async throws -> [String] {
-        let output = try await run(["-c", "core.fsmonitor=false", "ls-files", "--stage", "-z"], at: path)
-        var paths = Set<String>()
-        for field in output.stdout.split(separator: 0, omittingEmptySubsequences: true) {
-            guard let separator = field.firstIndex(of: 9) else { throw MonoDeckError("git-output-invalid", .invalidGitStatusRecord) }
-            let metadata = field[..<separator].split(separator: 32, omittingEmptySubsequences: true)
-            let name = field[field.index(after: separator)...]
-            guard metadata.count == 3, !name.isEmpty else { throw MonoDeckError("git-output-invalid", .invalidGitStatusRecord) }
-            if metadata[0].elementsEqual("160000".utf8), metadata[2].elementsEqual("0".utf8) {
-                paths.insert(String(decoding: name, as: UTF8.self))
-            }
-        }
-        return paths.sorted()
-    }
     func changeCount(at path: URL) async throws -> Int {
         try Self.countChanges(await changeStatus(at: path))
     }

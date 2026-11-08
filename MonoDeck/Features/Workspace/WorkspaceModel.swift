@@ -506,7 +506,7 @@ final class WorkspaceModel {
 
     func operationsChanged(_ busy: Bool) {
         if busy {
-            details.pause(keepingMonitoring: activeReload?.maintenance != nil && activeReload?.intent.contains(.current) == false)
+            details.pause(keepingCurrentDetail: activeReload?.maintenance != nil && activeReload?.intent.contains(.current) == false)
             if activeReload?.maintenance == nil, let load = reloadTask {
                 let interrupted = activeReload
                 cancelledReload = load.task; load.task.cancel(); refreshGeneration += 1
