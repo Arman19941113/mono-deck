@@ -95,8 +95,12 @@ struct MonoDeckApp: App {
         .restorationBehavior(.disabled)
         .commandsRemoved()
         Settings {
-            SettingsView(model: model).frame(width: 640, height: 480 - settingsChromeHeight)
-                .background(WindowChromeHeight(height: $settingsChromeHeight))
+            SettingsView(model: model, closeWindow: {
+                // SwiftUI can call onDismiss before AppKit re-enables the close button.
+                delegate.settingsWindow?.close()
+            })
+                .frame(width: 640, height: 480 - settingsChromeHeight)
+                .background(WindowChromeHeight(height: $settingsChromeHeight, onWindow: { delegate.settingsWindow = $0 }))
                 .background(SettingsWindowPlacement(size: CGSize(width: 640, height: 480), sourceWindow: { delegate.mainWindow }))
                 .environment(\.locale, model.preferences.activeLocale.locale)
         }

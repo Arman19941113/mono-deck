@@ -3,7 +3,7 @@ import MonoDeckCore
 
 struct SettingsView: View {
     @Bindable var model: AppModel
-    @Environment(\.dismiss) private var dismiss
+    var closeWindow: () -> Void
     @Environment(\.openWindow) private var openWindow
     @State private var choosingWorkspace = false
     @State private var openingWorkspaceURL: URL?
@@ -81,7 +81,8 @@ struct SettingsView: View {
         .sheet(isPresented: operationSheetPresentation, onDismiss: {
             if closingAfterWorkspaceChange {
                 closingAfterWorkspaceChange = false
-                dismiss(); openWindow(id: "main")
+                closeWindow()
+                openWindow(id: "main")
             } else if choosingAgain { choosingAgain = false; chooseWorkspace() }
         }) {
             operationSheetContents

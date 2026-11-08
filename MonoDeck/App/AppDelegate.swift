@@ -6,6 +6,7 @@ import Observation
 @MainActor @Observable final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var model: AppModel?
     @ObservationIgnored private(set) weak var mainWindow: NSWindow?
+    @ObservationIgnored weak var settingsWindow: NSWindow?
     private(set) var mainWindowIsOpen = false
     private(set) var startupTask: Task<Void, Never>?
     private(set) var terminationTask: Task<Void, Never>?

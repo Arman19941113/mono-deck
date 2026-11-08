@@ -700,7 +700,7 @@ import SwiftUI
         model.management.importWorkspace("version: 1\nrepositories: []\ngroups: {}", filename: "workspace.yaml")
         await (try #require(model.operation)).value
         #expect(model.presentation.result?.reasonCode == "invalid-workspace-configuration" && model.presentation.resultHost == .settings)
-        let presentation = SettingsView(model: model).operationSheetPresentation
+        let presentation = SettingsView(model: model, closeWindow: {}).operationSheetPresentation
         #expect(presentation.wrappedValue)
 
         var record = try #require(model.workspace.record)
