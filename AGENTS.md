@@ -46,14 +46,16 @@
 
 ## 按需读取
 
-- 执行下列任务前读取对应章节，只展开当前任务需要的细则。
+- 执行下列任务前，按需查看相关章节、源码和测试。
 
 | 任务 | 入口 |
 | --- | --- |
 | 产品与使用方式 | [README.md](README.md) |
 | 调整功能模型或异步协调 | [模型职责与生命周期](DEVELOPMENT.md#模型职责与生命周期) |
-| 调整 Git 读取、调度或缓存 | [Git 读取与缓存](DEVELOPMENT.md#git-读取与缓存) |
-| 调整工作区加载、启动或引导 | [工作区加载与维护](DEVELOPMENT.md#工作区加载与维护)、[启动与设置](DEVELOPMENT.md#启动与设置) |
+| 调整 Git 读取、调度或缓存 | [Git 读取与缓存](DEVELOPMENT.md#git-读取与缓存)、[GitBrowserModel](MonoDeck/Features/GitBrowser/GitBrowserModel.swift)、[读取调度测试](MonoDeckTests/RepositoryReadSchedulingTests.swift) |
+| 调整工作区加载、启动或引导 | [工作区加载与维护](DEVELOPMENT.md#工作区加载与维护)、[启动与设置](DEVELOPMENT.md#启动与设置)、[WorkspaceModel](MonoDeck/Features/Workspace/WorkspaceModel.swift)、[工作区加载测试](MonoDeckTests/WorkspaceLoadingTests.swift) |
+| 调整工作区 YAML 导入或重试 | [YAMLService](MonoDeckCore/Workflows/YAMLService.swift)、[导入重试测试](MonoDeckTests/WorkflowTests.swift)（`workspaceYAMLRetryRegistersRetainedWorktrees`） |
+| 调整工作树删除与授权 | [DeletionService](MonoDeckCore/Workflows/DeletionService.swift)、[删除预演与授权测试](MonoDeckTests/DeletionPreviewTests.swift) |
 | 调整自动更新 | [自动更新](DEVELOPMENT.md#自动更新) |
 | 构建、启动或调试 App | [构建启动与调试](DEVELOPMENT.md#构建启动与调试)、[临时实例收尾](DEVELOPMENT.md#临时实例收尾) |
 | 运行测试或诊断失败 | [测试执行与诊断](DEVELOPMENT.md#测试执行与诊断) |
