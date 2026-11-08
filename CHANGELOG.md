@@ -1,5 +1,26 @@
 # Changelog
 
+## [2.0.0] - 2026-11-09
+
+### Changed
+
+- **Manual upgrade from Modu.** Quit Modu, download and install `MonoDeck.app` from the new DMG, then use Setup to install `mono-deck` and select your existing workspace folder. App settings start fresh. Setup can rebuild the workspace record from local Git data, preserving branches and changes in recognized repositories and worktrees. Use `$mono-deck-workflow` in your agent prompts.
+- **Breaking CLI changes.** Replace `modu-cli workspace inspect` with `mono-deck workspace tree`. Use `group list`, `group create`, and `group edit` in place of `worktree list`, `worktree create`, and `worktree update`. Use `group delete`, `group member delete`, and `repo delete` for removals, and `repo add --display-name` in place of `--name`. Use `--dry-run` to preview writes and `--yes` to authorize deletions in JSON or non-interactive calls. `group edit --repo` supplies the full desired member list, so omitted members are deleted.
+- **Breaking CLI JSON and workspace YAML changes.** CLI JSON uses a `schema-version: 2` operation result, including for successful tree queries. Read the tree from `data.tree` and use `repository-id` and `group-name` to identify resources in results. Export a fresh version 2 YAML file after recovering your workspace. To convert an existing export, set `version` to `2` and rename repository `name` to `display-name`. For each group, rename `repositories` to `repository-ids`, remove `created-at`, and set `branch-name` to the intended initial branch.
+- Git Browser refreshes local changes and commit lists on demand, including when you switch selections or return to the app. Press `⌘R` to refresh while staying on the same selection.
+- Deleting linked worktrees removes them from their original paths and updates Git registration and branches before returning. File cleanup and disk space reclamation can finish in the background.
+
+### Added
+
+- Import workspace YAML into an existing workspace to add missing repositories and groups. Matching repositories and registered groups are kept. A repository ID with a different remote URL is reported as a conflict. Retrying can reuse verified worktrees retained from an earlier attempt.
+- Set an initial branch independently of the group name, including names like `feature/checkout`. New members use the saved branch name. The CLI can also add specific members with `group member add` while keeping the others.
+- Click a repository's update status to see details about the result.
+
+### Fixed
+
+- Keep Setup responsive during CLI checks. Selecting an existing workspace in Settings can recover a missing workspace record, and Settings closes after a successful switch.
+- Show saved Git details sooner at startup and preserve the current workspace view when record validation fails.
+
 ## [1.8.0] - 2026-11-03
 
 ### Added
