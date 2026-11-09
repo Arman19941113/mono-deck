@@ -71,6 +71,7 @@ See [Verification and delivery](AGENTS.md#verification-and-delivery) for test sc
 ## Packaging and releases
 
 - Maintain the product version and build number in [Version.xcconfig](Version.xcconfig). `task package` builds and packages the arm64 DMG and opens it automatically when `CI` is unset or empty. See [generate_version.sh](script/generate_version.sh) and [package_app.sh](script/package_app.sh).
+- Run `task package` on Apple Silicon. On macOS 27 and later, it uses `diskutil image create` because macOS 27 deprecates `hdiutil create`. On macOS 26, it uses `hdiutil create`.
 - Explicitly invoking the release skill and requesting the full workflow authorizes staging and committing only `Version.xcconfig` and `CHANGELOG.md`, and creating the corresponding local tag. Pushing a branch or tag and creating a GitHub Release require separate explicit authorization. See the [release skill](.agents/skills/release-mono-deck/SKILL.md) for the workflow and validation commands.
 
 ### CI and package requirements

@@ -4,6 +4,7 @@ from collections import deque
 import json
 import os
 from pathlib import Path
+import plistlib
 import re
 import shutil
 import signal
@@ -370,6 +371,15 @@ def cleanup(directory, suite, derived, log, verbose):
     if removed.returncode != 0:
         remaining = subprocess.run(["/usr/bin/defaults", "read", suite], capture_output=True)
         return remaining.returncode != 0
+    # macOS 27 can leave an empty preferences file after deleting a domain.
+    preferences = Path.home() / "Library" / "Preferences" / f"{suite}.plist"
+    try:
+        with preferences.open("rb") as file:
+            if plistlib.load(file) != {}:
+                return False
+    except FileNotFoundError:
+        return True
+    preferences.unlink(missing_ok=True)
     return True
 
 

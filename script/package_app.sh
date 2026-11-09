@@ -11,7 +11,7 @@ xcodebuild \
   -project "$ROOT_DIR/MonoDeck.xcodeproj" \
   -scheme MonoDeck \
   -configuration Release \
-  -destination 'generic/platform=macOS' \
+  -destination 'platform=macOS,arch=arm64' \
   -derivedDataPath "$DERIVED_DATA_PATH" \
   -onlyUsePackageVersionsFromResolvedFile \
   ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
@@ -43,8 +43,13 @@ trap 'rm -rf "$STAGING_DIR"' EXIT
 ditto "$APP_BUNDLE" "$STAGING_DIR/MonoDeck.app"
 ln -s /Applications "$STAGING_DIR/Applications"
 mkdir -p "$PACKAGE_DIR"
-hdiutil create -volname MonoDeck -srcfolder "$STAGING_DIR" \
-  -format UDZO -fs HFS+ -ov "$DMG_PATH"
+MACOS_VERSION="$(sw_vers -productVersion)"
+if (( ${MACOS_VERSION%%.*} >= 27 )); then
+  diskutil image create from --volumeName MonoDeck --format UDZO "$STAGING_DIR" "$DMG_PATH"
+else
+  hdiutil create -volname MonoDeck -srcfolder "$STAGING_DIR" \
+    -format UDZO -fs HFS+ -ov "$DMG_PATH"
+fi
 hdiutil verify "$DMG_PATH"
 echo "Package: $DMG_PATH"
 
