@@ -238,6 +238,22 @@ extension Git {
         }
         return result
     }
+    func hasPendingRepositoryIgnoreRules(_ repositoryIDs: [String], at root: URL) async throws -> Bool {
+        // A failed automatic commit leaves .gitignore staged, but users can also stage unrelated edits.
+        guard try await workspaceFilesHaveStagedChanges([".gitignore"], at: root) else { return false }
+        let blob = try await run(["rev-parse", "--verify", "--quiet", "HEAD:.gitignore"], at: root, allowFailure: true, cancellable: false)
+        guard blob.status == 0 || blob.status == 1 else { throw MonoDeckError("git-failed", .couldNotCheckGitignoreRules) }
+        let missing: [String]
+        if blob.status == 0 {
+            let committed = try await run(["cat-file", "blob", blob.text], at: root, cancellable: false).stdout
+            missing = try await ignored(repositoryIDs, contents: committed, cancellable: false)
+        } else {
+            missing = repositoryIDs
+        }
+        // The automatic commit stages the working copy, so check that it still supplies a missing rule.
+        guard !missing.isEmpty, let pending = try workspaceIgnoreContents(at: root.appending(path: ".gitignore")) else { return false }
+        return try await ignored(missing, contents: pending, cancellable: false).count < missing.count
+    }
     func ignored(_ names: [String], contents: Data, cancellable: Bool = true) async throws -> [String] {
         guard !names.isEmpty else { return [] }
         let temp = FileManager.default.temporaryDirectory.appending(path: "mono-deck-ignore-\(UUID().uuidString)")

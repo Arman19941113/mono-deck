@@ -200,15 +200,14 @@ extension WorkspaceService {
             result.items.append(item)
         }
         let addedRepositories = result.items.contains { $0.data?["disposition"] == "added" }
-        let skippedRepositories = result.items.contains { $0.resource.kind == .repository && $0.reasonCode == "already-exists" }
-        if addedRepositories || (skippedRepositories && !Task.isCancelled) {
+        let skippedRepositoryIDs = result.items.compactMap { $0.reasonCode == "already-exists" ? $0.resource.repositoryID : nil }
+        if addedRepositories || (!skippedRepositoryIDs.isEmpty && !Task.isCancelled) {
             var item = ItemResult(.workspace())
             do {
-                let paths = [".gitignore"]
-                let needsCommit = addedRepositories ? true : try await git.workspaceFilesHaveStagedChanges(paths, at: root)
+                let needsCommit = addedRepositories ? true : try await git.hasPendingRepositoryIgnoreRules(skippedRepositoryIDs, at: root)
                 if needsCommit {
                     progress(.init(root.path, .saving, cancellable: false))
-                    if let oid = try await git.commitWorkspaceFiles(paths, message: "chore: import MonoDeck workspace repositories", at: root) {
+                    if let oid = try await git.commitWorkspaceFiles([".gitignore"], message: "chore: import MonoDeck workspace repositories", at: root) {
                         item.effects.append(.init("commit-workspace-files", oid))
                     }
                 }

@@ -279,7 +279,8 @@ struct WorkflowTests {
         #expect(try await git.oid("HEAD", at: f.root) == nil)
     }
 
-    @Test func workspaceYAMLAppendsMissingItemsAndRepeatLeavesLocalStateAlone() async throws {
+    @Test(arguments: [false, true])
+    func workspaceYAMLAppendsMissingItemsAndRepeatLeavesLocalStateAlone(_ stageIgnore: Bool) async throws {
         let f = try await Fixture(template: .singleRepository); defer { f.remove() }
         try await f.prepareGroup("existing", branchName: "local/task", repositoryIDs: ["repo"])
         var before = try f.service.store.load(f.root)
@@ -315,7 +316,13 @@ struct WorkflowTests {
         #expect(try await f.service.git.oid("refs/heads/imported/task", at: f.root) == nil)
 
         let ignore = f.root.appending(path: ".gitignore")
-        let dirtyIgnore = try Data(contentsOf: ignore) + Data("# private edits\n".utf8)
+        let editedIgnore = try Data(contentsOf: ignore) + Data("# private edits\n".utf8)
+        if stageIgnore {
+            try editedIgnore.write(to: ignore)
+            _ = try await f.service.git.run(["add", "--", ".gitignore"], at: f.root)
+        }
+        let index = try await f.service.git.run(["show", ":.gitignore"], at: f.root).stdout
+        let dirtyIgnore = editedIgnore + Data("# unstaged edits\n".utf8)
         try dirtyIgnore.write(to: ignore)
         let head = try await f.service.git.oid("HEAD", at: f.root)
         try FileManager.default.removeItem(at: remote)
@@ -329,6 +336,7 @@ struct WorkflowTests {
         #expect(repeated.items.allSatisfy { $0.status == .skipped && $0.effects.isEmpty })
         #expect(try f.service.store.load(f.root) == saved)
         #expect(try Data(contentsOf: ignore) == dirtyIgnore)
+        #expect(try await f.service.git.run(["show", ":.gitignore"], at: f.root).stdout == index)
         #expect(try await f.service.git.oid("HEAD", at: f.root) == head)
     }
     @Test func workspaceYAMLRepositoryConflictBlocksOnlyDependentGroups() async throws {
