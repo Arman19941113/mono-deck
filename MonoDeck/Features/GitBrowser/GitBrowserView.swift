@@ -196,6 +196,9 @@ private struct GitBrowserSections: View {
     @ViewBuilder private func status(_ value: String, conflict: Bool, staged: Bool) -> some View {
         let name = FileChange.label(value)
         if name != "—" {
+            let text = preferences.text
+            let stagingLabel = text.string(staged ? .uiStaged : .uiUnstaged)
+            let statusLabel = conflict ? text.statusText("Conflict") + " (\(value))" : text.fileStatus(value)
             Group {
                 if conflict { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).frame(width: 16) }
                 else if value == "?" || ["Added", "Moved", "Modified", "Deleted"].contains(name) {
@@ -203,7 +206,7 @@ private struct GitBrowserSections: View {
                         .frame(width: 16, height: 16, alignment: .leading)
                 }
                 else { Text(value).foregroundStyle(.secondary).frame(width: 16) }
-            }.help("\(staged ? preferences.text.string(.uiStaged) : preferences.text.string(.uiUnstaged)): \(conflict ? preferences.text.statusText("Conflict") + " (\(value))" : preferences.text.fileStatus(value))")
+            }.help(text.string(.uiGitFileStatusHelp(stagingLabel, statusLabel)))
         }
     }
     private func safeChangedPath(_ relative: String) -> URL? {

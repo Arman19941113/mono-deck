@@ -16,7 +16,7 @@ struct MonoDeckApp: App {
     @State private var settingsChromeHeight: CGFloat = 32
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     var body: some Scene {
-        Window("MonoDeck", id: "main") {
+        Window(Text(verbatim: "MonoDeck"), id: "main") {
             ContentView(model: model, startupCompleted: startupCompleted)
                 .onAppear { delegate.model = model }
                 .frame(minWidth: MainWindowPlacement.minimumSize.width, minHeight: MainWindowPlacement.minimumSize.height - chromeHeight)

@@ -6726,6 +6726,23 @@
         }
       }
     },
+    "ui.gitFileStatusHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "zh-Hans-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$@"
+          }
+        }
+      }
+    },
     "ui.gitGUI": {
       "extractionState": "manual",
       "localizations": {
@@ -7640,6 +7657,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "正在打开工作区…"
+          }
+        }
+      }
+    },
+    "ui.operationEffectDetails": {
+      "extractionState": "manual",
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@ [%3$@]"
+          }
+        },
+        "zh-Hans-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$@［%3$@］"
           }
         }
       }

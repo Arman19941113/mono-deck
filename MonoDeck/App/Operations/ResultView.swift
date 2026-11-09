@@ -96,7 +96,7 @@ struct ResultView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         if let errorDetails { Text(errorDetails) }
                         ForEach(Array(item.effects.enumerated()), id: \.offset) { _, effect in
-                            Text("\(text.statusText(effect.action)): \(effect.target) [\(text.statusText(effect.state))]")
+                            Text(text.string(.uiOperationEffectDetails(text.statusText(effect.action), effect.target, text.statusText(effect.state))))
                         }
                     }.font(DialogTypography.path).frame(maxWidth: .infinity, alignment: .leading)
                 }.font(DialogTypography.auxiliary).foregroundStyle(DesignStyle.secondary)

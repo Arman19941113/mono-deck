@@ -14,7 +14,11 @@ struct AppCommands: Commands {
         }
         CommandGroup(replacing: .newItem) {}
         CommandGroup(replacing: .singleWindowList) {
-            Button("MonoDeck") { openWindow(id: "main") }.disabled(!startupWindowReady)
+            Button {
+                openWindow(id: "main")
+            } label: {
+                Text(verbatim: "MonoDeck")
+            }.disabled(!startupWindowReady)
             Button(model.text.string(.uiMonoDeckSetup)) { openWindow(id: "setup") }.disabled(model.busy || !startupWindowReady)
         }
         CommandGroup(after: .newItem) {

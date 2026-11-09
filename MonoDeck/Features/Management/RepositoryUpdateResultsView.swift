@@ -102,7 +102,7 @@ struct RepositoryUpdateResultPopover: View {
                         }
                     }
                 }
-                if let head = item.data?["actual-head"] { Text("HEAD: \(head)").font(DialogTypography.path) }
+                if let head = item.data?["actual-head"] { Text(verbatim: "HEAD: \(head)").font(DialogTypography.path) }
                 if let workingTree = item.data?["working-tree"] {
                     Text(text.string(.uiWorkingTree2(text.statusText(workingTree == "clean" ? "Clean" : "Dirty"))))
                 }
