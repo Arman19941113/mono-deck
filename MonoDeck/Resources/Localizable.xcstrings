@@ -3608,19 +3608,53 @@
         }
       }
     },
+    "message.worktreeFilesRestoredToOriginalPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Worktree files were restored to their original path."
+          }
+        },
+        "zh-Hans-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作树文件已移回原路径。"
+          }
+        }
+      }
+    },
+    "message.worktreeFilesRetainedAt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Worktree files were kept at %1$@."
+          }
+        },
+        "zh-Hans-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作树文件保留在 %1$@。"
+          }
+        }
+      }
+    },
     "message.worktreeIsLocked": {
       "extractionState": "manual",
       "localizations": {
         "en-US": {
           "stringUnit": {
             "state": "translated",
-            "value": "Worktree is locked: %1$@"
+            "value": "Unlock this worktree with Git before deleting it: %1$@"
           }
         },
         "zh-Hans-CN": {
           "stringUnit": {
             "state": "translated",
-            "value": "工作树已锁定：%1$@"
+            "value": "请先用 Git 解锁此工作树，再删除：%1$@"
           }
         }
       }

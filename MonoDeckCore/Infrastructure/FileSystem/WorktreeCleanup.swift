@@ -42,6 +42,10 @@ struct WorktreeRemovalBatch {
 
     mutating func didUnregister(_ path: URL) { ready.append(path.lastPathComponent) }
 
+    func restore(_ staged: URL, to path: URL) -> Bool {
+        renamex_np(staged.path, path.path, UInt32(RENAME_EXCL)) == 0
+    }
+
     func finish() async {
         guard let directory else { return }
         guard !ready.isEmpty, let helper = removal.helper else {

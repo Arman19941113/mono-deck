@@ -196,6 +196,8 @@ public indirect enum UserMessage: Sendable, Equatable {
     case detachedHEADNoBranchDelete
     case currentLocalBranchWillBePermanentlyDeletedIncluding(String)
     case missingWorktreeRemovesOnlyRecordEntry
+    case worktreeFilesRestoredToOriginalPath
+    case worktreeFilesRetainedAt(String)
     case cleanupFailed(UserMessage)
     case branchTargetCompletedEffectsAreRetained(String)
 
@@ -234,7 +236,7 @@ public indirect enum UserMessage: Sendable, Equatable {
         case .memberIsNotConfigured: return "Member is not configured."
         case .missingRepositoryStillHasConfiguredMembers: return "Missing repository still has configured members."
         case .existingDirectoryHasNoMatchingGitRegistration(let arg1): return "Existing directory has no matching Git worktree registration: \(arg1)"
-        case .worktreeIsLocked(let arg1): return "Worktree is locked: \(arg1)"
+        case .worktreeIsLocked(let arg1): return "Unlock this worktree with Git before deleting it: \(arg1)"
         case .registeredWorktreeHEADIsUnreadable(let arg1): return "Registered worktree HEAD is unreadable: \(arg1)"
         case .repositoryMembersMustBeRemovedFirst: return "Repository members must be removed first."
         case .groupStillHasMembers: return "Group still has members."
@@ -397,6 +399,8 @@ public indirect enum UserMessage: Sendable, Equatable {
         case .detachedHEADNoBranchDelete: return "Detached HEAD — no branch to delete."
         case .currentLocalBranchWillBePermanentlyDeletedIncluding(let arg1): return "Current local branch '\(arg1)' will be permanently deleted, including unmerged commits."
         case .missingWorktreeRemovesOnlyRecordEntry: return "The worktree directory and Git registration are missing; only the workspace record entry will be removed. No branch will be deleted."
+        case .worktreeFilesRestoredToOriginalPath: return "Worktree files were restored to their original path."
+        case .worktreeFilesRetainedAt(let path): return "Worktree files were kept at \(path)."
         case .cleanupFailed(let arg1): return "Cleanup failed: \(arg1.englishDescription)"
         case .branchTargetCompletedEffectsAreRetained(let arg1): return "Branch target: \(arg1). Completed effects are retained."
         }

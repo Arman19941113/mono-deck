@@ -93,33 +93,59 @@ struct WorktreeCleanupTests {
         }
     }
 
-    @Test func failedUnregisterKeepsMovedDataOutOfCleanup() async throws {
+    @Test(arguments: [false, true])
+    func failedUnregisterRestoresOrReportsMovedData(_ registrationChanged: Bool) async throws {
         let fixture = try await Fixture(template: .singleRepository)
         var canRemoveFixture = true
         defer { if canRemoveFixture { fixture.remove() } }
         try await fixture.prepareGroup("feature", repositoryIDs: ["repo"])
         let record = try fixture.service.store.load(fixture.root)
+        let root = record.groupURL("feature")
         let retainedName = "retained-user-data"
-        try Data("keep me".utf8).write(to: record.groupURL("feature").appending(path: retainedName))
-        _ = try await fixture.service.git.run(["worktree", "lock", record.groupURL("feature").path], at: fixture.root)
+        try Data("keep me".utf8).write(to: root.appending(path: retainedName))
+        let gitDir = try await fixture.service.git.run(["rev-parse", "--absolute-git-dir"], at: root).text
+        let registration = URL(fileURLWithPath: gitDir)
+        let differentGitFile = fixture.directory.appending(path: "different/.git")
         let probe = try WorktreeCleanupProbe(fixture)
         defer { probe.unlock() }
-        let service = probe.service(fixture)
+        var service = probe.service(fixture)
+        service.worktreeRemoval.isInternalLocalVolume = { path in
+            if path == root {
+                // Simulate Git changing the registration after the last check and before the rename.
+                if registrationChanged {
+                    try Data("\(differentGitFile.path)\n".utf8).write(to: registration.appending(path: "gitdir"))
+                } else {
+                    try Data("locked\n".utf8).write(to: registration.appending(path: "locked"))
+                }
+            }
+            return true
+        }
         do {
             let result = await service.deleteConfirmed(.group("feature"), at: fixture.root)
+            #expect(result.status == .partialSuccess, "\(result.items)")
             let invocation = try await probe.invocation()
-            #expect(result.status == .partialSuccess)
-            #expect(result.items.first?.status == .success && result.items.last?.reasonCode == "git-failed")
-            #expect(result.items.last?.effects.first?.state == "unknown")
+            let failed = try #require(result.items.last)
+            #expect(result.items.first?.status == .success)
+            #expect(failed.status == .failed && failed.reasonCode == "git-failed")
+            #expect(failed.effects.first?.state == (registrationChanged ? "unknown" : "reverted"))
             #expect(invocation.entries.count == 1)
-            #expect(!PathSafety.exists(record.groupURL("feature")))
             #expect(try service.store.load(fixture.root).groups["feature"]?.repositoryIDs == [])
             #expect(try await service.git.oid("refs/heads/feature", at: fixture.root) != nil)
-            #expect(try await service.git.registrations(at: fixture.root).contains { $0.locked && $0.branch == "feature" })
-            let retained = try #require(try FileManager.default.contentsOfDirectory(at: invocation.directory, includingPropertiesForKeys: nil).first {
-                PathSafety.exists($0.appending(path: retainedName))
-            })
-            #expect(!invocation.entries.contains(retained.lastPathComponent))
+            let retained: URL
+            if registrationChanged {
+                #expect(!PathSafety.exists(root))
+                retained = try #require(try FileManager.default.contentsOfDirectory(at: invocation.directory, includingPropertiesForKeys: nil).first {
+                    PathSafety.exists($0.appending(path: retainedName))
+                })
+                #expect(!invocation.entries.contains(retained.lastPathComponent))
+                let reportedPath = invocation.directory.appending(path: retained.lastPathComponent).path
+                #expect(failed.message?.contains(reportedPath) == true, "\(failed.message ?? "")")
+            } else {
+                retained = root
+                #expect(failed.message?.contains("locked") == true)
+                #expect(failed.message?.contains(UserMessage.worktreeFilesRestoredToOriginalPath.englishDescription) == true)
+                #expect(try await service.git.registrations(at: fixture.root).contains { $0.locked && $0.branch == "feature" })
+            }
 
             probe.unlock()
             try await probe.waitForExit()

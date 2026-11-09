@@ -200,6 +200,8 @@ extension InterfaceText {
         case .detachedHEADNoBranchDelete: return string(.messageDetachedHEADNoBranchDelete)
         case .currentLocalBranchWillBePermanentlyDeletedIncluding(let arg1): return string(.messageCurrentLocalBranchWillBePermanentlyDeletedIncluding(arg1))
         case .missingWorktreeRemovesOnlyRecordEntry: return string(.messageMissingWorktreeRemovesOnlyRecordEntry)
+        case .worktreeFilesRestoredToOriginalPath: return string(.messageWorktreeFilesRestoredToOriginalPath)
+        case .worktreeFilesRetainedAt(let path): return string(.messageWorktreeFilesRetainedAt(path))
         case .cleanupFailed(let arg1): return string(.messageCleanupFailed(message(arg1)))
         case .branchTargetCompletedEffectsAreRetained(let arg1): return string(.messageBranchTargetCompletedEffectsAreRetained(arg1))
         }

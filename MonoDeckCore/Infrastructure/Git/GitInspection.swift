@@ -8,8 +8,8 @@ public struct WorktreeRegistration: Sendable {
 }
 
 extension Git {
-    public func registrations(at repository: URL) async throws -> [WorktreeRegistration] {
-        let output = try await run(["worktree", "list", "--porcelain", "-z"], at: repository)
+    public func registrations(at repository: URL, cancellable: Bool = true) async throws -> [WorktreeRegistration] {
+        let output = try await run(["worktree", "list", "--porcelain", "-z"], at: repository, cancellable: cancellable)
         var values: [WorktreeRegistration] = []
         for field in output.stdout.split(separator: 0, omittingEmptySubsequences: false).map({ String(decoding: $0, as: UTF8.self) }) {
             if field.hasPrefix("worktree ") { values.append(.init(path: String(field.dropFirst(9)))) }

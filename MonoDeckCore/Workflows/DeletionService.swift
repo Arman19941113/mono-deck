@@ -129,9 +129,12 @@ extension WorkspaceService {
         let main = try resource.repositoryID.map { try PathSafety.child("repositories/\($0)", of: record.rootURL, allowMissing: false) } ?? record.rootURL
         let repository = try await inspectMainRepository(main)
         let registrations = repository.registrations
-        let entry = registrations.first { PathSafety.identity(URL(fileURLWithPath: $0.path)) == PathSafety.identity(path) }
+        let entry = worktreeRegistration(at: path, in: registrations)
         guard !exists || entry != nil else { throw MonoDeckError("resource-unavailable", .existingDirectoryHasNoMatchingGitRegistration(path.path)) }
-        if let entry, let branch = entry.branch { try await git.checkBranchNotInUse(branch, registrations: registrations, at: repository.path, excluding: entry.path, commonDirectory: repository.commonDirectory) }
+        if let entry {
+            try checkWorktreeUnlocked(entry, at: path)
+            if let branch = entry.branch { try await git.checkBranchNotInUse(branch, registrations: registrations, at: repository.path, excluding: entry.path, commonDirectory: repository.commonDirectory) }
+        }
         var risks: [UserMessage] = []
         var dirty: Bool?
         if exists { try await checkWorktree(resource, at: path, repository: repository, validateHEAD: false) }
@@ -186,11 +189,7 @@ extension WorkspaceService {
             } else {
                 let repository = resource.repositoryID.map { record.repositoryURL($0) } ?? record.rootURL
                 if target.gitRegistered || target.exists {
-                    item.effects.append(.init("remove-worktree", path.path, state: "unknown"))
-                    let staged = cleanup.stage(path)
-                    _ = try await git.run(["worktree", "remove", "--force", "--", path.path], at: repository, cancellable: false)
-                    if let staged { cleanup.didUnregister(staged) }
-                    item.effects[item.effects.count - 1].state = "applied"
+                    try await removeWorktree(path, at: repository, cleanup: &cleanup, item: &item)
                 }
                 var candidate = record
                 if let repo = resource.repositoryID { candidate.groups[resource.groupName!]!.repositoryIDs.removeAll { $0 == repo } }
@@ -214,5 +213,42 @@ extension WorkspaceService {
             if let branch = target.branch { item.userMessage = .joined([item.userMessage, .branchTargetCompletedEffectsAreRetained(branch)].compactMap { $0 }, separator: " "); item.message = "\(item.message ?? "") Branch target: \(branch). Completed effects are retained." }
         }
         return item
+    }
+
+    private func removeWorktree(_ path: URL, at repository: URL, cleanup: inout WorktreeRemovalBatch, item: inout ItemResult) async throws {
+        let registrations = try await git.registrations(at: repository, cancellable: false)
+        guard let entry = worktreeRegistration(at: path, in: registrations) else {
+            throw MonoDeckError("resource-unavailable", .worktreeRegistrationIsMissing(path.path))
+        }
+        try checkWorktreeUnlocked(entry, at: path)
+        item.effects.append(.init("remove-worktree", path.path, state: "unknown"))
+        let effect = item.effects.count - 1
+        let staged = cleanup.stage(path)
+        do {
+            _ = try await git.run(["worktree", "remove", "--force", "--", path.path], at: repository, cancellable: false)
+        } catch {
+            guard let staged else { throw error }
+            let current = try? await git.registrations(at: repository, cancellable: false)
+            let recoveryMessage: UserMessage
+            if let current, worktreeRegistration(at: path, in: current) != nil, cleanup.restore(staged, to: path) {
+                item.effects[effect].state = "reverted"
+                recoveryMessage = .worktreeFilesRestoredToOriginalPath
+            } else {
+                recoveryMessage = .worktreeFilesRetainedAt(staged.path)
+            }
+            let failure = MonoDeckError.wrap(error)
+            throw MonoDeckError(failure.code, .joined([failure.userMessage, recoveryMessage], separator: "\n"))
+        }
+        if let staged { cleanup.didUnregister(staged) }
+        item.effects[effect].state = "applied"
+    }
+
+    private func worktreeRegistration(at path: URL, in registrations: [WorktreeRegistration]) -> WorktreeRegistration? {
+        let identity = PathSafety.identity(path)
+        return registrations.first { PathSafety.identity(URL(fileURLWithPath: $0.path)) == identity }
+    }
+
+    private func checkWorktreeUnlocked(_ registration: WorktreeRegistration, at path: URL) throws {
+        guard !registration.locked else { throw MonoDeckError("worktree-locked", .worktreeIsLocked(path.path)) }
     }
 }

@@ -75,7 +75,7 @@ MonoDeck maintains the following files and commits them to the workspace reposit
 ## Usage notes
 
 - **Share configuration.** Export the workspace configuration as YAML from Settings, then import it into the target workspace. Import adds missing repositories and groups. It skips repositories whose IDs and remote URLs match and groups whose names match. If a repository ID matches but the remote URL differs, the import reports a conflict.
-- **Deleting a member or group** permanently removes the affected worktrees and their current local branches. Uncommitted changes are removed with the worktrees, and unmerged commits may be lost. Deleting a main repository first removes its associated members and then moves the main repository to Trash. Review the scope and any work you need to keep before confirming.
+- **Deleting a member or group** permanently removes the affected worktrees and their current local branches. Uncommitted changes are removed with the worktrees, and unmerged commits may be lost. Deleting a main repository first removes its associated members and then moves the main repository to Trash. Unlock any locked worktrees with Git before deleting. Review the scope and any work you need to keep before confirming.
 - **Cancellation or partial failure** can leave completed changes in place. Check the results for items that completed and those that still need attention.
 - A member worktree cannot start from a commit that contains **Git submodules**.
 

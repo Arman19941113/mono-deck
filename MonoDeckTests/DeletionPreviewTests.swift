@@ -342,11 +342,14 @@ import Testing
         #expect(!model.busy && model.operation == nil)
     }
 
-    @Test func lockedMemberCanBeConfirmedAndFailsDuringDeletion() async throws {
+    @Test func lockedMemberBlocksDeletionPreviewAndSurvivesReload() async throws {
         let fixture = try await Fixture(template: .singleRepository); defer { fixture.remove() }
         try await fixture.prepareGroup("feature", repositoryIDs: ["repo"])
         let record = try fixture.service.store.load(fixture.root)
         let member = record.memberURL("feature", "repo")
+        let notes = member.appending(path: "notes.txt")
+        let contents = Data("keep uncommitted notes\n".utf8)
+        try contents.write(to: notes)
         _ = try await fixture.service.git.run(["worktree", "lock", member.path], at: record.repositoryURL("repo"))
         let defaults = try #require(UserDefaults(suiteName: fixture.directory.lastPathComponent))
         defer { defaults.removePersistentDomain(forName: fixture.directory.lastPathComponent) }
@@ -354,22 +357,16 @@ import Testing
         model.workspace.record = record
         model.management.prepareDelete(.group("feature"))
         await model.management.deletePreviewTask?.value
-        #expect(model.management.canConfirmDelete && model.management.formError == nil)
+        #expect(!model.management.canConfirmDelete && model.management.deletion.isEmpty)
+        #expect(model.management.formError?.contains(member.path) == true)
 
         model.management.confirmDelete()
-        let operation = try #require(model.operation)
-        await operation.value
+        #expect(model.operation == nil)
         await model.workspace.stopReads()
 
-        let result = try #require(model.presentation.result)
-        let failed = try #require(result.items.first)
-        #expect(result.status == .failed && failed.resource == .member(groupName: "feature", repositoryID: "repo"))
-        #expect(failed.reasonCode == "git-failed")
-        #expect(failed.effects.map(\.action) == ["remove-worktree"] && failed.effects.first?.state == "unknown")
-        #expect(result.items.last?.resource == .group("feature") && result.items.last?.reasonCode == "not-processed")
-        #expect(model.workspace.record == record)
+        #expect(await fixture.service.openWorkspace(fixture.root).status == .success)
         #expect(try fixture.service.store.load(fixture.root) == record)
-        #expect(PathSafety.exists(member) && PathSafety.exists(record.groupURL("feature")))
+        #expect(try Data(contentsOf: notes) == contents)
     }
 
     @Test func editingMembersDiscardsACancelledDeletionRequest() async throws {
@@ -417,27 +414,22 @@ import Testing
         #expect(try fixture.service.store.load(fixture.root) == record)
     }
 
-    @Test func lockedGroupRootKeepsCompletedMemberDeletionAndRemainingRecord() async throws {
+    @Test(arguments: [false, true])
+    func lockedGroupRootStopsDeletionBeforeAnyEffects(_ confirmCurrentTargets: Bool) async throws {
         let fixture = try await Fixture(template: .singleRepository); defer { fixture.remove() }
         try await fixture.prepareGroup("feature", repositoryIDs: ["repo"])
         let record = try fixture.service.store.load(fixture.root)
         let targets = try await fixture.service.previewDelete(.group("feature"), at: fixture.root)
         _ = try await fixture.service.git.run(["worktree", "lock", record.groupURL("feature").path], at: fixture.root)
 
-        let result = await fixture.service.delete(.group("feature"), at: fixture.root, authorization: targets)
+        let result = await fixture.service.delete(.group("feature"), at: fixture.root,
+                                                  authorization: confirmCurrentTargets ? nil : targets,
+                                                  confirmCurrentTargets: confirmCurrentTargets)
 
-        #expect(result.status == .partialSuccess && result.items.count == 2)
-        let member = try #require(result.items.first)
-        #expect(member.status == .success && member.resource == .member(groupName: "feature", repositoryID: "repo"))
-        #expect(member.effects.map(\.action) == ["remove-worktree", "remove-record-entry", "delete-branch"])
-        #expect(member.effects.allSatisfy { $0.state == "applied" })
-        let root = try #require(result.items.last)
-        #expect(root.status == .failed && root.resource == .group("feature") && root.reasonCode == "git-failed")
-        #expect(root.effects.map(\.action) == ["remove-worktree"] && root.effects.first?.state == "unknown")
-        let saved = try fixture.service.store.load(fixture.root)
-        #expect(saved.groups["feature"]?.repositoryIDs == [] && saved.repositories == record.repositories)
-        #expect(PathSafety.exists(record.groupURL("feature")) && !PathSafety.exists(record.memberURL("feature", "repo")))
-        #expect(try await fixture.service.git.oid("refs/heads/feature", at: record.repositoryURL("repo")) == nil)
+        #expect(result.status == .failed && result.reasonCode == "worktree-locked" && result.items.isEmpty)
+        #expect(try fixture.service.store.load(fixture.root) == record)
+        #expect(PathSafety.exists(record.groupURL("feature")) && PathSafety.exists(record.memberURL("feature", "repo")))
+        #expect(try await fixture.service.git.oid("refs/heads/feature", at: record.repositoryURL("repo")) != nil)
         #expect(try await fixture.service.git.oid("refs/heads/feature", at: fixture.root) != nil)
     }
 }
