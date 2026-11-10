@@ -10,8 +10,16 @@ struct ContentView: View {
     var body: some View {
         WorkspaceSplitView(sidebar: WorkspaceSidebar(workspace: model.workspace, management: model.management, operations: model.operations, preferences: model.preferences).id(model.workspace.record?.root), detail: detail.frame(maxWidth: .infinity, maxHeight: .infinity), defaults: model.preferences.defaults)
         .background(DesignStyle.background)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(DesignStyle.cardBorder)
+                .frame(height: DesignStyle.workspaceDividerThickness)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
         .navigationTitle(model.workspace.record?.rootURL.lastPathComponent ?? "MonoDeck")
         .toolbar(removing: .title)
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 if model.showsMainOperationProgress {

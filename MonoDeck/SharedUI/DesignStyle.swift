@@ -3,6 +3,7 @@ import AppKit
 
 enum DesignStyle {
     static let sheetWidth: CGFloat = 460
+    static let workspaceDividerThickness: CGFloat = 1
     static let windowTitle = Font.system(size: 17, weight: .semibold)
     static let welcomeTitle = Font.system(size: 19, weight: .semibold)
     static let background = adaptive(light: 0xffffff, dark: 0x202020)

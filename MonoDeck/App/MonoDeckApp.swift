@@ -25,7 +25,10 @@ struct MonoDeckApp: App {
         }
         .defaultSize(width: 1200, height: 800)
         .defaultWindowPlacement { _, context in
-            MainWindowPlacement.initial(defaults: model.defaults, defaultVisibleRect: context.defaultDisplay.visibleRect)
+            #if DEBUG
+            if model.mockWorkspace != nil { return WindowPlacement(width: 940, height: 640) }
+            #endif
+            return MainWindowPlacement.initial(defaults: model.defaults, defaultVisibleRect: context.defaultDisplay.visibleRect)
         }
         .defaultLaunchBehavior(.suppressed)
         // Startup controls presentation; the saved geometry is applied during initial placement.
@@ -143,11 +146,11 @@ struct MonoDeckApp: App {
     private func configureMainWindow(_ window: NSWindow) {
         if window.styleMask.contains(.fullSizeContentView) {
             let frame = window.frame
-            // Keeping content below the toolbar preserves its native separator during live resizing.
+            // Keep the content's divider directly below the toolbar.
             window.styleMask.remove(.fullSizeContentView)
             window.setFrame(frame, display: false)
         }
-        window.titlebarSeparatorStyle = .line
+        window.titlebarSeparatorStyle = .none
         delegate.observeMainWindow(window)
     }
 }

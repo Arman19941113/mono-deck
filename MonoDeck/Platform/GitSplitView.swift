@@ -102,10 +102,12 @@ final class MonoDeckSplitView: NSSplitView {
     private var resizing = false
     private var preferredGitSplitRatio: CGFloat?
     private var pendingDividerPosition: (key: String, value: Double)?
-    override var dividerThickness: CGFloat { isVertical ? 1 : 12 }
+    override var dividerThickness: CGFloat { isVertical ? DesignStyle.workspaceDividerThickness : 12 }
 
     override func drawDivider(in rect: NSRect) {
-        if isVertical { NSColor.separatorColor.setFill(); rect.fill() }
+        guard isVertical else { return }
+        NSColor(DesignStyle.cardBorder).setFill()
+        backingAlignedRect(rect, options: .alignAllEdgesNearest).fill()
     }
 
     override func mouseDown(with event: NSEvent) {
