@@ -9544,23 +9544,6 @@
         }
       }
     },
-    "ui.worktreeUpdateFailed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Update failed"
-          }
-        },
-        "zh-Hans-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "更新失败"
-          }
-        }
-      }
-    },
     "ui.worktreeUpdateSucceeded": {
       "extractionState": "manual",
       "localizations": {

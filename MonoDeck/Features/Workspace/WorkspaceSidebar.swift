@@ -111,7 +111,7 @@ struct WorkspaceSidebar: View {
             Button { expanded.wrappedValue.toggle() } label: {
                 HStack(spacing: 6) {
                     DisclosureIcon(expanded: expanded.wrappedValue)
-                    SidebarFolderIcon()
+                    WorkspaceFolderIcon()
                     Text(title).font(.system(size: 13, weight: .medium))
                     Spacer(minLength: 0)
                 }.contentShape(Rectangle())

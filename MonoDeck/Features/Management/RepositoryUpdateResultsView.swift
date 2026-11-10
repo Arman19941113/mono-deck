@@ -2,11 +2,12 @@ import SwiftUI
 import MonoDeckCore
 
 struct RepositoryUpdateResultsView: View {
-    var text: InterfaceText
-    var result: OperationResult
+    let text: InterfaceText
+    let items: [ItemResult]
+    let workspace: String?
+    let isWorktreeUpdate: Bool
     static let resultColumnWidth: CGFloat = 96
     static let worktreeResultColumnWidth: CGFloat = 112
-    private var isWorktreeUpdate: Bool { result.command == "worktree.update" }
 
     var body: some View {
         let rows = displayRows()
@@ -23,7 +24,7 @@ struct RepositoryUpdateResultsView: View {
             }.font(DialogTypography.auxiliary).foregroundStyle(DesignStyle.secondary).padding(.bottom, 6)
             Divider()
             ForEach(Array(rows.enumerated()), id: \.element.resource.id) { index, row in
-                RepositoryUpdateResultRow(text: text, resource: row.resource, item: row.item, workspace: result.workspace,
+                RepositoryUpdateResultRow(text: text, resource: row.resource, item: row.item, workspace: workspace,
                                           isWorktreeUpdate: isWorktreeUpdate, columnWidth: columnWidth)
                     .overlay(alignment: .bottom) {
                         if index < rows.count - 1 { Divider().allowsHitTesting(false) }
@@ -33,7 +34,6 @@ struct RepositoryUpdateResultsView: View {
     }
 
     private func displayRows() -> [Row] {
-        let items = text.resultDisplayItems(result)
         var shownGroups = Set(items.compactMap { item -> String? in
             if case .group(let name) = item.resource { return name }
             return nil
@@ -80,10 +80,7 @@ private struct RepositoryUpdateResultRow: View {
     private var targetLabel: some View {
         let isGroup = resource.kind == .group
         return HStack(spacing: 6) {
-            if isWorktreeUpdate {
-                if isGroup { SidebarFolderIcon() }
-                else { DesignIcon(name: "FolderGit") }
-            }
+            WorkspaceResourceIcon(kind: resource.kind)
             Text(targetTitle)
                 .font(DialogTypography.body)
                 .lineLimit(1).truncationMode(.middle)
@@ -93,15 +90,17 @@ private struct RepositoryUpdateResultRow: View {
 
     private func statusButton(for item: ItemResult) -> some View {
         let status = RepositoryUpdateResultStatus(item)
-        let color: Color = !isWorktreeUpdate && status == .updated ? .blue : status.color
         return Button { showingDetails.toggle() } label: {
-            statusButtonLabel(statusLabel(for: item), symbolName: status.symbolName)
-                .font(DialogTypography.auxiliary)
-                .lineLimit(1)
-                .padding(.horizontal, 6).frame(minHeight: 26)
-                .contentShape(Rectangle())
+            HStack(spacing: 6) {
+                Image(systemName: status.symbolName).foregroundStyle(status.iconColor).accessibilityHidden(true)
+                Text(statusLabel(for: item))
+            }
+            .font(DialogTypography.auxiliary)
+            .lineLimit(1)
+            .padding(.horizontal, 6).frame(minHeight: 26)
+            .contentShape(Rectangle())
         }
-        .buttonStyle(HoverPlainButtonStyle(shape: RoundedRectangle(cornerRadius: 6), foreground: color, hoverForeground: color))
+        .buttonStyle(HoverPlainButtonStyle(shape: RoundedRectangle(cornerRadius: 6), hoverForeground: .primary))
         .background(showingDetails ? DesignStyle.field : .clear, in: RoundedRectangle(cornerRadius: 6))
         .textSelection(.disabled)
         .help(text.string(.uiViewDetails))
@@ -114,17 +113,6 @@ private struct RepositoryUpdateResultRow: View {
                 .onExitCommand { showingDetails = false }
         }
         .fixedSize(horizontal: !isWorktreeUpdate, vertical: true)
-    }
-
-    @ViewBuilder private func statusButtonLabel(_ title: String, symbolName: String) -> some View {
-        if isWorktreeUpdate {
-            HStack(spacing: 6) {
-                Image(systemName: symbolName).accessibilityHidden(true)
-                Text(title)
-            }
-        } else {
-            Label(title, systemImage: symbolName)
-        }
     }
 
     private var targetTitle: String {
@@ -141,7 +129,7 @@ private struct RepositoryUpdateResultRow: View {
         guard isWorktreeUpdate else { return text.resultStatus(item) }
         switch item.status {
         case .success: return text.string(.uiWorktreeUpdateSucceeded)
-        case .failed: return text.string(.uiWorktreeUpdateFailed)
+        case .failed: return text.string(.uiFailed2)
         default: return text.resultStatus(item)
         }
     }
@@ -232,7 +220,7 @@ enum RepositoryUpdateResultStatus: Equatable {
         }
     }
 
-    var color: Color {
+    var iconColor: Color {
         switch self {
         case .updated: .green
         case .failed: .red

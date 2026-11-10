@@ -1,6 +1,4 @@
 import SwiftUI
-import AppKit
-import UniformTypeIdentifiers
 import MonoDeckCore
 
 struct WorkspaceSidebarRow: View {
@@ -24,8 +22,7 @@ struct WorkspaceSidebarRow: View {
             }
             Button { workspace.selectSidebarRow(resource); sidebarFocused.wrappedValue = true } label: {
                 HStack(spacing: 6) {
-                    if resource.kind == .group { SidebarFolderIcon() }
-                    else { DesignIcon(name: "FolderGit") }
+                    WorkspaceResourceIcon(kind: resource.kind)
                     Text(title).font(.system(size: 13, weight: resource.kind == .group ? .medium : .regular)).lineLimit(1)
                     Spacer(minLength: 4)
                     if state?.available == false {
@@ -45,13 +42,4 @@ struct WorkspaceSidebarRow: View {
         .id(resource.id).help(workspace.record?.rootURL.appending(path: resource.path).path ?? resource.path)
         .contextMenu { ResourceActions(workspace: workspace, management: management, operations: operations, text: preferences.text, resource: resource) }
     }
-}
-
-struct SidebarFolderIcon: View {
-    var body: some View {
-        Image(nsImage: Self.folderImage).renderingMode(.original).resizable().scaledToFit()
-            .frame(width: 16, height: 16).scaleEffect(0.92).accessibilityHidden(true)
-    }
-
-    private static let folderImage = NSWorkspace.shared.icon(for: .folder)
 }

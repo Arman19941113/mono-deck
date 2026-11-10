@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import MonoDeckCore
 
 struct ResultView: View {
@@ -41,7 +42,8 @@ struct ResultView: View {
                             } else { IssueDescriptionView(message: text.message(result), details: Git.sanitize(raw), text: text) }
                         }
                         if isUpdate, !items.isEmpty {
-                            RepositoryUpdateResultsView(text: text, result: result)
+                            RepositoryUpdateResultsView(text: text, items: items, workspace: result.workspace,
+                                                        isWorktreeUpdate: isWorktreeUpdate)
                         } else if isWorktreeUpdate, result.status == .success {
                             Text(text.string(.uiNoWorktreesToUpdate)).foregroundStyle(DesignStyle.secondary)
                         } else {
@@ -66,30 +68,9 @@ struct ResultView: View {
     }
 
     private var resultHeader: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: resultSymbol).font(DialogTypography.body).foregroundStyle(resultColor).accessibilityHidden(true)
+        HStack(spacing: 8) {
+            ResultHeaderIcon(result: result).accessibilityHidden(true)
             Text(text.resultTitle(result)).font(DialogTypography.title)
-        }
-    }
-
-    private var resultSymbol: String {
-        if result.status == .success, result.hasWarnings { return "exclamationmark.triangle" }
-        return switch result.status {
-        case .success: "checkmark.circle"
-        case .cancelled: "stop.circle"
-        case .skipped: "info.circle"
-        case .failed: "xmark.circle"
-        default: "exclamationmark.triangle"
-        }
-    }
-
-    private var resultColor: Color {
-        if result.status == .success, result.hasWarnings { return .orange }
-        return switch result.status {
-        case .success: .green
-        case .failed: .red
-        case .cancelled, .skipped: .secondary
-        default: .orange
         }
     }
 
@@ -118,4 +99,51 @@ struct ResultView: View {
             }
         }
     }
+}
+
+private struct ResultHeaderIcon: View {
+    let result: OperationResult
+
+    var body: some View {
+        let appearance = self.appearance
+        if let systemIcon = appearance.systemIcon {
+            Image(nsImage: systemIcon)
+                .renderingMode(.original).resizable().scaledToFit()
+                .frame(width: 24, height: 24)
+        } else {
+            Image(systemName: appearance.symbol)
+                .font(.system(size: 20, weight: .medium))
+                .foregroundStyle(appearance.color)
+        }
+    }
+
+    private var appearance: (symbol: String, color: Color, systemIcon: NSImage?) {
+        switch result.status {
+        case .success where result.hasWarnings, .partialSuccess, .confirmationRequired:
+            ("exclamationmark.triangle", .orange, Self.cautionIcon)
+        case .success: ("checkmark.circle", .green, nil)
+        case .failed: ("xmark.circle", .red, Self.stopIcon)
+        case .skipped: ("info.circle", .secondary, nil)
+        case .cancelled: ("stop.circle", .secondary, nil)
+        }
+    }
+
+    private static let alertIconResources = URL(
+        fileURLWithPath: "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources",
+        isDirectory: true
+    )
+
+    private static let cautionIcon: NSImage? = {
+        guard let badge = NSImage(contentsOf: alertIconResources.appendingPathComponent("AlertCautionBadgeIcon.icns")) else { return nil }
+        let size = badge.size
+        // The system asset places the badge in the upper-right corner of a transparent canvas.
+        let source = NSRect(x: size.width * 0.56, y: size.height * 0.60,
+                            width: size.width * 0.40, height: size.height * 0.40)
+        return NSImage(size: source.size, flipped: false) { bounds in
+            badge.draw(in: bounds, from: source, operation: .sourceOver, fraction: 1)
+            return true
+        }
+    }()
+
+    private static let stopIcon = NSImage(contentsOf: alertIconResources.appendingPathComponent("AlertStopIcon.icns"))
 }
