@@ -54,7 +54,7 @@ struct InterfaceText {
     }
 
     func resultDisplayItems(_ result: OperationResult) -> [ItemResult] {
-        if result.command == "workspace.configuration.import" { return result.items }
+        if result.command == "workspace.configuration.import" || result.command == "worktree.update" { return result.items }
         if result.command == "repo.update" {
             return result.items.filter { $0.status == .failed || ($0.status == .success && $0.data?["disposition"] == "updated") }
         }
@@ -82,6 +82,7 @@ struct InterfaceText {
             "Checking repository…": .uiCheckingRepository, "Cloning…": .uiCloning,
             "Opening workspace…": .uiOpeningWorkspace,
             "Updating repositories…": .uiUpdatingRepositories2,
+            "Updating worktrees…": .uiUpdatingWorktrees,
             "Scanning local repositories…": .uiScanningLocalRepositories,
             "Creating…": .uiCreating, "Creating group root worktree…": .uiCreatingGroupRootWorktree,
             "Saving…": .uiSaving, "Cleaning up…": .uiCleaningUp, "Deleting…": .uiDeleting,

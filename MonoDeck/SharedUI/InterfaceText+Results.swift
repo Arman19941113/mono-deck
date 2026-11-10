@@ -34,6 +34,13 @@ extension InterfaceText {
             .cancelled: .resultRepoUpdateCancelled,
             .confirmationRequired: .resultRepoUpdateConfirmationRequired
         ],
+        "worktree.update": [
+            .success: .resultWorktreeUpdateComplete,
+            .partialSuccess: .resultWorktreeUpdatePartial,
+            .failed: .resultWorktreeUpdateFailed,
+            .skipped: .resultWorktreeUpdateSkipped,
+            .cancelled: .resultWorktreeUpdateCancelled
+        ],
         "repo.delete": [
             .success: .resultRepoDeleteSuccess,
             .partialSuccess: .resultRepoDeletePartialSuccess,

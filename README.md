@@ -47,6 +47,10 @@ xattr -dr com.apple.quarantine /Applications/MonoDeck.app
 
 To refresh the remote default branch before creating a group, use **Update Repositories**. It fetches the branch recorded by each main repository's local `origin/HEAD` and attempts a fast-forward-only merge. It skips repositories without a clean checkout of the corresponding local branch.
 
+Use **Update Worktrees** in the `worktrees` section to fast-forward the current branches of registered group roots and members using local Git data. Members use their repository's local `origin/HEAD`. Group roots use the workspace repository's local `origin/HEAD`, falling back to the branch checked out at the workspace root only when that reference is absent.
+
+MonoDeck skips worktrees with an unavailable base, a detached HEAD, uncommitted changes, an ongoing Git operation, or a diverged branch. The results show updates, skips, failures, and items left unfinished after cancellation. Eligible worktrees that already contain the base commit are omitted. Cancellation keeps completed updates. Click a status for details.
+
 After reinstalling, you can select the original workspace in Setup or Settings. If its workspace record is missing, MonoDeck attempts to rebuild it from local Git data, preserving branches and changes in the repositories and worktrees it recognizes.
 
 ## CLI and agents

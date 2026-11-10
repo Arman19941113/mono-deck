@@ -137,7 +137,8 @@ final class ManagementModel {
         }
     }
 
-    func run(_ body: @escaping @Sendable (WorkspaceService, URL, ProgressHandler) async -> OperationResult, select: Resource? = nil, members: [String]? = nil) {
+    func run(_ body: @escaping @Sendable (WorkspaceService, URL, ProgressHandler) async -> OperationResult, select: Resource? = nil,
+             members: [String]? = nil, initialPhase: OperationPhase? = nil) {
         let form = sheet == .add || sheet == .create || sheet == .importRepositories ? formSession : nil
         if let form {
             do {
@@ -151,10 +152,14 @@ final class ManagementModel {
         cancelDeletePreview()
         progressPresentation = sheet == nil ? nil : .init(importFileName: importFileName)
         guard let operationID = operations.begin(.management) else { return }
+        if let initialPhase { operations.report(.init("", initialPhase), for: operationID) }
         formError = nil; presentation.completionMessage = nil; session.invalidateReads()
         operationGeneration += 1; let operationToken = operationGeneration
+        let contextID = session.contextID
         let report: ProgressHandler = { [self] progress in Task { @MainActor in
-            guard self.operations.isCurrent(operationID), self.operations.kind != .workspace, self.operationGeneration == operationToken else { return }
+            guard self.operations.isCurrent(operationID), self.operations.kind != .workspace,
+                  self.operationGeneration == operationToken, self.session.contextID == contextID else { return }
+            if progress.phase == .updatingWorktrees, progress.completed < (self.operations.progress?.completed ?? 0) { return }
             self.operations.report(progress, for: operationID)
             self.progressPresentation?.progress = progress
             // Publish additions immediately; apply removals together in the final reload.
@@ -191,6 +196,10 @@ final class ManagementModel {
                 }
             }
             let outcome = await body(service, root, report)
+            if outcome.command == "worktree.update", session.contextID != contextID {
+                operations.finish(operationID)
+                return
+            }
             let isGroupOperation = ["group.create", "group.edit", "group.delete", "group.member.add", "group.member.delete"].contains(outcome.command)
             let noEffects = outcome.items.allSatisfy { $0.effects.isEmpty }
             if outcome.status == .failed, noEffects, sheet != nil, sheet != .delete, !presentation.quitPending {
@@ -204,7 +213,10 @@ final class ManagementModel {
             }
             session.invalidateResources(after: outcome)
             pendingEdit = nil; deletion = []
-            if outcome.command == "repo.update" {
+            if outcome.command == "worktree.update" {
+                presentation.resultHost = .main
+                presentation.result = outcome
+            } else if outcome.command == "repo.update" {
                 presentation.result = text.resultDisplayItems(outcome).isEmpty ? nil : outcome
             } else if outcome.status == .success && !presentation.quitPending {
                 presentation.result = outcome.hasWarnings || outcome.command == "workspace.configuration.import" ? outcome : nil
@@ -362,6 +374,9 @@ final class ManagementModel {
     }
     func importWorkspace(_ text: String, filename: String) { importFileName = filename; run { service, root, progress in await service.importWorkspaceYAML(text, at: root, progress: progress) } }
     func updateRepositories() { run { service, root, progress in await service.updateRepositories(at: root, progress: progress) } }
+    func updateWorktrees() {
+        run({ service, root, progress in await service.updateWorktrees(at: root, progress: progress) }, initialPhase: .updatingWorktrees)
+    }
 
     func presentError(_ error: Error) {
         formError = text.message(error)

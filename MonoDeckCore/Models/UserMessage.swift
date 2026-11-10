@@ -20,6 +20,10 @@ public indirect enum UserMessage: Sendable, Equatable {
     case repositoryRemoteMustResolveLocalPathInsideTemporary(String)
     case repositoryDirectoryIsMissing
     case repositoryChangedDuringUpdate
+    case worktreeChangedDuringUpdate
+    case worktreeUpdateBaseUnavailable
+    case worktreeUpdateCannotFastForward
+    case worktreeUpdateOperationInProgress
     case workingTreeHasChanges
     case detachedHEAD
     case couldNotReadCurrentBranch
@@ -223,6 +227,10 @@ public indirect enum UserMessage: Sendable, Equatable {
         case .repositoryRemoteMustResolveLocalPathInsideTemporary(let arg1): return "Repository remote must resolve to a local path inside the temporary directory: \(arg1)"
         case .repositoryDirectoryIsMissing: return "Repository directory is missing."
         case .repositoryChangedDuringUpdate: return "The repository changed or became unavailable during the update. Completed effects were kept. Review its current state and retry."
+        case .worktreeChangedDuringUpdate: return "The worktree or its base changed during the update. Review its current state and retry."
+        case .worktreeUpdateBaseUnavailable: return "The base branch does not identify an available local commit."
+        case .worktreeUpdateCannotFastForward: return "The current branch cannot fast-forward to the base branch."
+        case .worktreeUpdateOperationInProgress: return "Finish the Git operation in this worktree before updating it."
         case .workingTreeHasChanges: return "Working tree has changes."
         case .detachedHEAD: return "Detached HEAD."
         case .couldNotReadCurrentBranch: return "Could not read the current branch."

@@ -9,26 +9,41 @@ struct ResultView: View {
     var context: String? = nil
     var dismissTitle: String? = nil
     var dismiss: () -> Void
+    @State private var showingUpdateError = false
+    private var isWorktreeUpdate: Bool { result.command == "worktree.update" }
+    private var isUpdate: Bool { isWorktreeUpdate || result.command == "repo.update" }
+
     var body: some View {
         let items = text.resultDisplayItems(result)
-        return VStack(alignment: .leading, spacing: result.command == "repo.update" ? 12 : 16) {
-            VStack(alignment: .leading, spacing: result.command == "repo.update" ? 4 : 6) {
+        return VStack(alignment: .leading, spacing: isUpdate ? 12 : 16) {
+            VStack(alignment: .leading, spacing: isUpdate ? 4 : 6) {
                 resultHeader
                 if let context { Text(context).font(DialogTypography.auxiliary).foregroundStyle(DesignStyle.secondary) }
-                if result.command != "repo.update", let summary = text.resultSummaryText(result) {
+                if !isUpdate, let summary = text.resultSummaryText(result) {
                     Text(summary).font(DialogTypography.auxiliary).foregroundStyle(DesignStyle.secondary).monospacedDigit()
                 }
             }
-            VStack(spacing: result.command == "repo.update" ? 0 : 16) {
+            VStack(spacing: isUpdate ? 0 : 16) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
                         if result.command == "workspace.open", let workspace = result.workspace { Text(workspace).font(DialogTypography.path) }
                         if result.command == "group.edit", result.status == .confirmationRequired {
                             Text(text.string(.uiGroupMembershipChangedReviewAgain))
                         }
-                        if let raw = result.message { IssueDescriptionView(message: text.message(result), details: Git.sanitize(raw), text: text) }
-                        if result.command == "repo.update", !items.isEmpty {
+                        if let raw = result.message {
+                            if isWorktreeUpdate {
+                                Button(text.string(.uiViewDetails)) { showingUpdateError.toggle() }
+                                    .popover(isPresented: $showingUpdateError, arrowEdge: .bottom) {
+                                        IssueDescriptionView(message: text.message(result), details: Git.sanitize(raw), text: text)
+                                            .padding(16).frame(width: 420)
+                                            .onExitCommand { showingUpdateError = false }
+                                    }
+                            } else { IssueDescriptionView(message: text.message(result), details: Git.sanitize(raw), text: text) }
+                        }
+                        if isUpdate, !items.isEmpty {
                             RepositoryUpdateResultsView(text: text, result: result)
+                        } else if isWorktreeUpdate, result.status == .success {
+                            Text(text.string(.uiNoWorktreesToUpdate)).foregroundStyle(DesignStyle.secondary)
                         } else {
                             ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                                 itemContents(item, count: items.count)

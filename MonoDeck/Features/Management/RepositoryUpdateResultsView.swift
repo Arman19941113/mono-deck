@@ -5,68 +5,154 @@ struct RepositoryUpdateResultsView: View {
     var text: InterfaceText
     var result: OperationResult
     static let resultColumnWidth: CGFloat = 96
+    static let worktreeResultColumnWidth: CGFloat = 112
+    private var isWorktreeUpdate: Bool { result.command == "worktree.update" }
 
     var body: some View {
-        let items = text.resultDisplayItems(result)
+        let rows = displayRows()
+        let columnWidth = isWorktreeUpdate ? Self.worktreeResultColumnWidth : Self.resultColumnWidth
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 12) {
-                Text(text.string(.uiRepository)).frame(maxWidth: .infinity, alignment: .leading)
-                Text(text.string(.uiResult)).padding(.leading, 6)
-                    .frame(width: Self.resultColumnWidth, alignment: .leading)
+                Text(text.string(isWorktreeUpdate ? .uiWorktreeUpdateTarget : .uiRepository))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityAddTraits(.isHeader)
+                Text(text.string(.uiResult))
+                    .padding(.leading, 6)
+                    .frame(width: columnWidth, alignment: .leading)
+                    .accessibilityAddTraits(.isHeader)
             }.font(DialogTypography.auxiliary).foregroundStyle(DesignStyle.secondary).padding(.bottom, 6)
             Divider()
-            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                RepositoryUpdateResultRow(text: text, item: item, workspace: result.workspace)
-                if index < items.count - 1 { Divider() }
+            ForEach(Array(rows.enumerated()), id: \.element.resource.id) { index, row in
+                RepositoryUpdateResultRow(text: text, resource: row.resource, item: row.item, workspace: result.workspace,
+                                          isWorktreeUpdate: isWorktreeUpdate, columnWidth: columnWidth)
+                    .overlay(alignment: .bottom) {
+                        if index < rows.count - 1 { Divider().allowsHitTesting(false) }
+                    }
             }
         }
     }
+
+    private func displayRows() -> [Row] {
+        let items = text.resultDisplayItems(result)
+        var shownGroups = Set(items.compactMap { item -> String? in
+            if case .group(let name) = item.resource { return name }
+            return nil
+        })
+        var rows: [Row] = []
+        for item in items {
+            if isWorktreeUpdate, case .member(let groupName, _) = item.resource, shownGroups.insert(groupName).inserted {
+                rows.append(Row(resource: .group(groupName), item: nil))
+            }
+            rows.append(Row(resource: item.resource, item: item))
+        }
+        return rows
+    }
+
+    private struct Row {
+        let resource: Resource
+        let item: ItemResult?
+    }
 }
 
-struct RepositoryUpdateResultRow: View {
+private struct RepositoryUpdateResultRow: View {
     var text: InterfaceText
-    var item: ItemResult
+    var resource: Resource
+    var item: ItemResult?
     var workspace: String?
+    var isWorktreeUpdate: Bool
+    var columnWidth: CGFloat
     @State private var showingDetails = false
 
     var body: some View {
         HStack(spacing: 12) {
-            Text(repositoryID).font(DialogTypography.body.monospaced())
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, minHeight: 26, alignment: .leading)
+            targetLabel
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .help(fullPath)
-            Button { showingDetails.toggle() } label: {
-                Label(statusLabel, systemImage: status.symbolName)
-                    .font(DialogTypography.auxiliary)
-                    .padding(.horizontal, 6).frame(minHeight: 26)
-                    .contentShape(Rectangle())
+            if let item {
+                statusButton(for: item)
+                    .frame(width: columnWidth, alignment: .leading)
+            } else {
+                Color.clear.frame(width: columnWidth, height: 0)
             }
-            .buttonStyle(HoverPlainButtonStyle(shape: RoundedRectangle(cornerRadius: 6), foreground: status.color, hoverForeground: status.color))
-            .background(showingDetails ? DesignStyle.field : .clear, in: RoundedRectangle(cornerRadius: 6))
-            .textSelection(.disabled)
-            .help(text.string(.uiViewDetails))
-            .accessibilityIdentifier("repo-update-status-\(item.resource.id)")
-            .accessibilityValue(text.string(showingDetails ? .uiExpanded : .uiCollapsed))
-            .accessibilityHint(text.string(.uiViewDetails))
-            .popover(isPresented: $showingDetails, arrowEdge: .bottom) {
-                RepositoryUpdateResultPopover(text: text, item: item, fullPath: fullPath)
-                    .onExitCommand { showingDetails = false }
-            }
-            .fixedSize()
-            .frame(width: RepositoryUpdateResultsView.resultColumnWidth, alignment: .leading)
-        }.padding(.vertical, 4)
+        }.frame(height: 28)
     }
 
-    var repositoryID: String { item.resource.repositoryID ?? (item.resource.path as NSString).lastPathComponent }
-    var fullPath: String { workspace.map { URL(fileURLWithPath: $0).appending(path: item.resource.path).path } ?? item.resource.path }
-    var status: RepositoryUpdateResultStatus { .init(item) }
-    var statusLabel: String { text.resultStatus(item) }
+    private var targetLabel: some View {
+        let isGroup = resource.kind == .group
+        return HStack(spacing: 6) {
+            if isWorktreeUpdate {
+                if isGroup { SidebarFolderIcon() }
+                else { DesignIcon(name: "FolderGit") }
+            }
+            Text(targetTitle)
+                .font(DialogTypography.body)
+                .lineLimit(1).truncationMode(.middle)
+                .accessibilityAddTraits(isGroup ? .isHeader : [])
+        }
+    }
+
+    private func statusButton(for item: ItemResult) -> some View {
+        let status = RepositoryUpdateResultStatus(item)
+        let color: Color = !isWorktreeUpdate && status == .updated ? .blue : status.color
+        return Button { showingDetails.toggle() } label: {
+            statusButtonLabel(statusLabel(for: item), symbolName: status.symbolName)
+                .font(DialogTypography.auxiliary)
+                .lineLimit(1)
+                .padding(.horizontal, 6).frame(minHeight: 26)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(HoverPlainButtonStyle(shape: RoundedRectangle(cornerRadius: 6), foreground: color, hoverForeground: color))
+        .background(showingDetails ? DesignStyle.field : .clear, in: RoundedRectangle(cornerRadius: 6))
+        .textSelection(.disabled)
+        .help(text.string(.uiViewDetails))
+        .accessibilityIdentifier("\(updateID)-status-\(resource.id)")
+        .accessibilityValue(text.string(showingDetails ? .uiExpanded : .uiCollapsed))
+        .accessibilityHint(text.string(.uiViewDetails))
+        .popover(isPresented: $showingDetails, arrowEdge: .bottom) {
+            RepositoryUpdateResultPopover(text: text, item: item, fullPath: fullPath,
+                                          updateID: updateID, branchDetails: isWorktreeUpdate ? branchDetails(for: item) : nil)
+                .onExitCommand { showingDetails = false }
+        }
+        .fixedSize(horizontal: !isWorktreeUpdate, vertical: true)
+    }
+
+    @ViewBuilder private func statusButtonLabel(_ title: String, symbolName: String) -> some View {
+        if isWorktreeUpdate {
+            HStack(spacing: 6) {
+                Image(systemName: symbolName).accessibilityHidden(true)
+                Text(title)
+            }
+        } else {
+            Label(title, systemImage: symbolName)
+        }
+    }
+
+    private var targetTitle: String {
+        resource.repositoryID ?? resource.groupName ?? (resource.path as NSString).lastPathComponent
+    }
+    private func branchDetails(for item: ItemResult) -> String {
+        let branch = item.data?["branch"] ?? "—"
+        let base = item.data?["base"] ?? "—"
+        return "\(text.string(.uiHeadBranch)) \(branch)\n\(text.string(.uiBaseBranch)) \(base)"
+    }
+    private var updateID: String { isWorktreeUpdate ? "worktree-update" : "repo-update" }
+    private var fullPath: String { workspace.map { URL(fileURLWithPath: $0).appending(path: resource.path).path } ?? resource.path }
+    private func statusLabel(for item: ItemResult) -> String {
+        guard isWorktreeUpdate else { return text.resultStatus(item) }
+        switch item.status {
+        case .success: return text.string(.uiWorktreeUpdateSucceeded)
+        case .failed: return text.string(.uiWorktreeUpdateFailed)
+        default: return text.resultStatus(item)
+        }
+    }
 }
 
 struct RepositoryUpdateResultPopover: View {
     var text: InterfaceText
     var item: ItemResult
     var fullPath: String
+    var updateID: String
+    var branchDetails: String?
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -78,7 +164,7 @@ struct RepositoryUpdateResultPopover: View {
         // Focus the container, not the scroll view, so Escape stays within the popover.
         .focusable().focusEffectDisabled().focused($focused)
         .onAppear { focused = true }
-        .accessibilityIdentifier("repo-update-details-\(item.resource.id)")
+        .accessibilityIdentifier("\(updateID)-details-\(item.resource.id)")
     }
 
     private var details: some View {
@@ -86,6 +172,7 @@ struct RepositoryUpdateResultPopover: View {
             VStack(alignment: .leading, spacing: 12) {
                 if let message { Text(message).font(DialogTypography.body) }
                 Text(fullPath).font(DialogTypography.path).foregroundStyle(DesignStyle.secondary)
+                if let branchDetails { Text(branchDetails).font(DialogTypography.path) }
                 if !item.effects.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(Array(item.effects.enumerated()), id: \.offset) { _, effect in
@@ -125,23 +212,31 @@ struct RepositoryUpdateResultPopover: View {
 }
 
 enum RepositoryUpdateResultStatus: Equatable {
-    case updated, failed
+    case updated, skipped, failed, cancelled
 
     init(_ item: ItemResult) {
-        self = item.status == .failed ? .failed : .updated
+        self = switch item.status {
+        case .failed: .failed
+        case .skipped: .skipped
+        case .cancelled: .cancelled
+        default: .updated
+        }
     }
 
     var symbolName: String {
         switch self {
         case .updated: "checkmark.circle"
+        case .skipped: "info.circle"
         case .failed: "exclamationmark.circle"
+        case .cancelled: "stop.circle"
         }
     }
 
     var color: Color {
         switch self {
-        case .updated: .blue
+        case .updated: .green
         case .failed: .red
+        case .skipped, .cancelled: .secondary
         }
     }
 }

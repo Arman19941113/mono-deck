@@ -150,6 +150,7 @@ def generate(directory, jobs):
     order_base_updates(directory, git)
     write(root / "worktrees/feature-store-pickup/storefront-web/src/pickup.ts",
           "export function pickupMessage(location: string): string {\n  return `Ready for pickup at ${location}`;\n}\n")
+    prepare_worktree_update_examples(directory, git, commit)
     record = {"version": 2, "root": str(root), "repositories": [{"url": f"https://example.invalid/{name}.git"} for name in REPOSITORIES],
               "groups": {name: {"branch-name": name, "created-at": "2026-08-30T00:00:00Z", "repository-ids": members} for name, members in GROUPS.items()}}
     identity = unicodedata.normalize("NFC", str(root))
@@ -158,6 +159,25 @@ def generate(directory, jobs):
         identity = identity.lower()
     key = hashlib.sha256(identity.encode()).hexdigest()
     write_json(directory / "support/workspaces" / f"{key}.json", record)
+
+
+def prepare_worktree_update_examples(directory, git, commit):
+    root = directory / "example-workspace"
+    pickup = root / "worktrees/feature-store-pickup"
+    overselling = root / "worktrees/fix-overselling"
+
+    write(root / "docs/review-checklist.md", "# Review checklist\n\n- Run tests in each affected repository.\n")
+    commit(root, "docs: add a shared review checklist", "2026-08-31T10:00:00Z")
+    write(overselling / "review-notes.md", "# Review notes\n\nReproduce the concurrent checkout case.\n")
+
+    inventory_member = pickup / "inventory-service"
+    write(inventory_member / "docs/pickup-stock.md", "# Pickup stock\n\nReserve stock at the selected pickup location.\n")
+    commit(inventory_member, "docs(inventory): document pickup stock reservations", "2026-08-30T10:00:00Z")
+    inventory_source = directory / "sources/inventory-service"
+    write(inventory_source / "docs/reconciliation.md", "# Stock reconciliation\n\nReview inventory levels at the end of each day.\n")
+    commit(inventory_source, "docs(inventory): add stock reconciliation guidance", "2026-08-31T10:10:00Z")
+    publish_mock_base(directory, "inventory-service", git)
+    git(pickup / "ios-client", "switch", "--quiet", "--detach")
 
 
 def order_changes(path, git, commit):
@@ -184,8 +204,12 @@ def order_base_updates(directory, git):
     ]
     for index, subject in enumerate(subjects):
         git(source, "commit", "--quiet", "--allow-empty", "-m", subject, date=f"2026-08-31T09:{index:02d}:00Z")
-    git(source, "push", "--quiet", str(directory / "remotes/order-service.git"), "HEAD:refs/heads/main")
-    git(directory / "example-workspace/repositories/order-service", "fetch", "--quiet", "--no-recurse-submodules", "origin")
+    publish_mock_base(directory, "order-service", git)
+
+
+def publish_mock_base(directory, name, git):
+    git(directory / "sources" / name, "push", "--quiet", str(directory / "remotes" / f"{name}.git"), "HEAD:refs/heads/main")
+    git(directory / "example-workspace/repositories" / name, "fetch", "--quiet", "--no-recurse-submodules", "origin")
 
 
 def baseline_files(name):

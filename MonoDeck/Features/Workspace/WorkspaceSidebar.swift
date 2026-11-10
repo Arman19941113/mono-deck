@@ -116,15 +116,18 @@ struct WorkspaceSidebar: View {
                     Spacer(minLength: 0)
                 }.contentShape(Rectangle())
             }.accessibilityLabel(title).accessibilityValue(expanded.wrappedValue ? preferences.text.string(.uiExpanded) : preferences.text.string(.uiCollapsed))
-            if add == .add {
-                Button { management.updateRepositories() } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 12, weight: .semibold)).frame(width: 24, height: 24).accessibilityHidden(true)
-                }
-                    .buttonStyle(HoverPlainButtonStyle(shape: Circle(), foreground: DesignStyle.secondary, hoverForeground: DesignStyle.secondary))
-                    .help(preferences.text.string(.uiUpdateRepositories)).accessibilityLabel(preferences.text.string(.uiUpdateRepositories))
-                    .disabled(!workspace.canManage || workspace.sidebarStructure.repositories.isEmpty)
+            let repositories = add == .add
+            let updateTitle = preferences.text.string(repositories ? .uiUpdateRepositories : .uiUpdateWorktrees)
+            Button {
+                if repositories { management.updateRepositories() }
+                else { management.updateWorktrees() }
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 12, weight: .semibold)).frame(width: 24, height: 24).accessibilityHidden(true)
             }
+            .buttonStyle(HoverPlainButtonStyle(shape: Circle(), foreground: DesignStyle.secondary, hoverForeground: DesignStyle.secondary))
+            .help(updateTitle).accessibilityLabel(updateTitle)
+            .disabled(!workspace.canManage || (repositories ? workspace.sidebarStructure.repositories.isEmpty : workspace.sidebarStructure.groups.isEmpty))
             Button { management.requestForm(add == .add ? .addRepository : .createGroup) } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 13, weight: .semibold)).frame(width: 24, height: 24).accessibilityHidden(true)

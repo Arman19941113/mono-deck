@@ -3591,6 +3591,23 @@
         }
       }
     },
+    "message.worktreeChangedDuringUpdate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The worktree or its base changed during the update. Review its current state and retry."
+          }
+        },
+        "zh-Hans-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新期间工作树或基准发生了变化。请检查当前状态后重试。"
+          }
+        }
+      }
+    },
     "message.worktreeHEADIsUnavailable": {
       "extractionState": "manual",
       "localizations": {
@@ -3706,6 +3723,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Git 工作树注册缺失：%1$@"
+          }
+        }
+      }
+    },
+    "message.worktreeUpdateBaseUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The base branch does not identify an available local commit."
+          }
+        },
+        "zh-Hans-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "基准分支未指向可用的本地提交。"
+          }
+        }
+      }
+    },
+    "message.worktreeUpdateCannotFastForward": {
+      "extractionState": "manual",
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The current branch cannot fast-forward to the base branch."
+          }
+        },
+        "zh-Hans-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前分支无法快进到基准分支。"
+          }
+        }
+      }
+    },
+    "message.worktreeUpdateOperationInProgress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finish the Git operation in this worktree before updating it."
+          }
+        },
+        "zh-Hans-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先完成此工作树中正在进行的 Git 操作。"
           }
         }
       }
@@ -4913,6 +4981,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "工作区已打开"
+          }
+        }
+      }
+    },
+    "result.worktreeUpdateCancelled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Worktree update cancelled"
+          }
+        },
+        "zh-Hans-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作树更新已取消"
+          }
+        }
+      }
+    },
+    "result.worktreeUpdateComplete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Worktree update complete"
+          }
+        },
+        "zh-Hans-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作树更新完成"
+          }
+        }
+      }
+    },
+    "result.worktreeUpdateFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Worktree update failed"
+          }
+        },
+        "zh-Hans-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作树更新失败"
+          }
+        }
+      }
+    },
+    "result.worktreeUpdatePartial": {
+      "extractionState": "manual",
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Worktree update partially completed"
+          }
+        },
+        "zh-Hans-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作树更新部分完成"
+          }
+        }
+      }
+    },
+    "result.worktreeUpdateSkipped": {
+      "extractionState": "manual",
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Worktree update skipped"
+          }
+        },
+        "zh-Hans-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作树更新已跳过"
           }
         }
       }
@@ -7525,6 +7678,23 @@
         }
       }
     },
+    "ui.noWorktreesToUpdate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There are no worktrees to update."
+          }
+        },
+        "zh-Hans-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有可更新的工作树。"
+          }
+        }
+      }
+    },
     "ui.notProcessed": {
       "extractionState": "manual",
       "localizations": {
@@ -9034,6 +9204,23 @@
         }
       }
     },
+    "ui.updateWorktrees": {
+      "extractionState": "manual",
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update Worktrees"
+          }
+        },
+        "zh-Hans-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新工作树"
+          }
+        }
+      }
+    },
     "ui.updated": {
       "extractionState": "manual",
       "localizations": {
@@ -9098,6 +9285,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "正在更新主仓库…"
+          }
+        }
+      }
+    },
+    "ui.updatingWorktrees": {
+      "extractionState": "manual",
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updating worktrees"
+          }
+        },
+        "zh-Hans-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在更新工作树"
           }
         }
       }
@@ -9336,6 +9540,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "工作区只读"
+          }
+        }
+      }
+    },
+    "ui.worktreeUpdateFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update failed"
+          }
+        },
+        "zh-Hans-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新失败"
+          }
+        }
+      }
+    },
+    "ui.worktreeUpdateSucceeded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updated"
+          }
+        },
+        "zh-Hans-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新成功"
+          }
+        }
+      }
+    },
+    "ui.worktreeUpdateTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Worktree"
+          }
+        },
+        "zh-Hans-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作树"
           }
         }
       }

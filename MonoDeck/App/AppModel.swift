@@ -44,7 +44,7 @@ final class AppModel {
     }
     var mainOperationProgressText: String {
         if workspace.isReloading, !workspace.showsReloadProgress, !cancelling { return text.string(.uiPreparingWorkspace) }
-        return presentation.repositoryUpdateProgressText
+        return presentation.mainOperationProgressText
     }
     var canShowMaintenanceFailure: Bool {
         workspace.maintenanceState == .failed && workspace.maintenanceFailure != nil && !busy && !presentation.quitPending

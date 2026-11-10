@@ -105,8 +105,12 @@ final class OperationPresentation {
         return parts.joined(separator: " · ")
     }
 
-    var repositoryUpdateProgressText: String {
-        let title = cancelling ? text.string(.uiCancelling) : openingWorkspace ? text.string(.uiReloadingWorkspace) : text.string(.uiUpdatingRepositories)
+    var mainOperationProgressText: String {
+        let title: String
+        if cancelling { title = text.string(.uiCancelling) }
+        else if openingWorkspace { title = text.string(.uiReloadingWorkspace) }
+        else if progress?.phase == .updatingWorktrees { title = text.string(.uiUpdatingWorktrees) }
+        else { title = text.string(.uiUpdatingRepositories) }
         guard let progress, progress.total > 0 else { return title }
         return "\(title) · \(progress.completed)/\(progress.total)"
     }
