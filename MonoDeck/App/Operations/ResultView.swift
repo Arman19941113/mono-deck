@@ -1,5 +1,4 @@
 import SwiftUI
-import AppKit
 import MonoDeckCore
 
 struct ResultView: View {
@@ -34,10 +33,9 @@ struct ResultView: View {
                         if let raw = result.message {
                             if isWorktreeUpdate {
                                 Button(text.string(.uiViewDetails)) { showingUpdateError.toggle() }
-                                    .popover(isPresented: $showingUpdateError, arrowEdge: .bottom) {
+                                    .detailsPopover(isPresented: $showingUpdateError) {
                                         IssueDescriptionView(message: text.message(result), details: Git.sanitize(raw), text: text)
                                             .padding(16).frame(width: 420)
-                                            .onExitCommand { showingUpdateError = false }
                                     }
                             } else { IssueDescriptionView(message: text.message(result), details: Git.sanitize(raw), text: text) }
                         }
@@ -69,8 +67,18 @@ struct ResultView: View {
 
     private var resultHeader: some View {
         HStack(spacing: 8) {
-            ResultHeaderIcon(result: result).accessibilityHidden(true)
+            resultIcon
             Text(text.resultTitle(result)).font(DialogTypography.title)
+        }
+    }
+
+    private var resultIcon: DialogStatusIcon {
+        switch result.status {
+        case .success where result.hasWarnings, .partialSuccess, .confirmationRequired: .caution
+        case .success: DialogStatusIcon(symbol: "checkmark.circle", color: .green)
+        case .failed: .failure
+        case .skipped: DialogStatusIcon(symbol: "info.circle", color: .secondary)
+        case .cancelled: DialogStatusIcon(symbol: "stop.circle", color: .secondary)
         }
     }
 
@@ -99,51 +107,4 @@ struct ResultView: View {
             }
         }
     }
-}
-
-private struct ResultHeaderIcon: View {
-    let result: OperationResult
-
-    var body: some View {
-        let appearance = self.appearance
-        if let systemIcon = appearance.systemIcon {
-            Image(nsImage: systemIcon)
-                .renderingMode(.original).resizable().scaledToFit()
-                .frame(width: 24, height: 24)
-        } else {
-            Image(systemName: appearance.symbol)
-                .font(.system(size: 20, weight: .medium))
-                .foregroundStyle(appearance.color)
-        }
-    }
-
-    private var appearance: (symbol: String, color: Color, systemIcon: NSImage?) {
-        switch result.status {
-        case .success where result.hasWarnings, .partialSuccess, .confirmationRequired:
-            ("exclamationmark.triangle", .orange, Self.cautionIcon)
-        case .success: ("checkmark.circle", .green, nil)
-        case .failed: ("xmark.circle", .red, Self.stopIcon)
-        case .skipped: ("info.circle", .secondary, nil)
-        case .cancelled: ("stop.circle", .secondary, nil)
-        }
-    }
-
-    private static let alertIconResources = URL(
-        fileURLWithPath: "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources",
-        isDirectory: true
-    )
-
-    private static let cautionIcon: NSImage? = {
-        guard let badge = NSImage(contentsOf: alertIconResources.appendingPathComponent("AlertCautionBadgeIcon.icns")) else { return nil }
-        let size = badge.size
-        // The system asset places the badge in the upper-right corner of a transparent canvas.
-        let source = NSRect(x: size.width * 0.56, y: size.height * 0.60,
-                            width: size.width * 0.40, height: size.height * 0.40)
-        return NSImage(size: source.size, flipped: false) { bounds in
-            badge.draw(in: bounds, from: source, operation: .sourceOver, fraction: 1)
-            return true
-        }
-    }()
-
-    private static let stopIcon = NSImage(contentsOf: alertIconResources.appendingPathComponent("AlertStopIcon.icns"))
 }

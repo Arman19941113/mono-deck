@@ -225,7 +225,6 @@ final class WorkspaceModel {
     }
 
     func maintainWorkspace(_ trigger: MaintenanceTrigger = .manual) async {
-        if trigger == .manual { presentation.completionMessage = nil }
         await requestReload(maintenance: MaintenanceOptions(trigger), intent: trigger == .startup ? [.record, .sidebar] : .all)
     }
 

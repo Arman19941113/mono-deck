@@ -6964,40 +6964,6 @@
         }
       }
     },
-    "ui.groupRootWorktreeMembersAndCurrentLocalBranches": {
-      "extractionState": "manual",
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The group root worktree, its members, and their current local branches (including unmerged commits) will be permanently deleted."
-          }
-        },
-        "zh-Hans-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "将永久删除分组根工作树、成员工作树及它们当前的本地分支（包括未合并提交）。"
-          }
-        }
-      }
-    },
-    "ui.groupRootWorktreeWillBeKept": {
-      "extractionState": "manual",
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The group root worktree will be kept."
-          }
-        },
-        "zh-Hans-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "将保留分组根工作树。"
-          }
-        }
-      }
-    },
     "ui.headBranch": {
       "extractionState": "manual",
       "localizations": {
@@ -7317,23 +7283,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "开始使用"
-          }
-        }
-      }
-    },
-    "ui.linkedWorktreeAndCurrentLocalBranchIncludingUnmerged": {
-      "extractionState": "manual",
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The linked worktree and its current local branch (including unmerged commits) will be permanently deleted."
-          }
-        },
-        "zh-Hans-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "将永久删除关联工作树及其当前本地分支（包括未合并提交）。"
           }
         }
       }
@@ -7916,6 +7865,23 @@
         }
       }
     },
+    "ui.path": {
+      "extractionState": "manual",
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Path"
+          }
+        },
+        "zh-Hans-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "路径"
+          }
+        }
+      }
+    },
     "ui.preparingUpdate": {
       "extractionState": "manual",
       "localizations": {
@@ -8252,23 +8218,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "仓库 URL"
-          }
-        }
-      }
-    },
-    "ui.repositoryWillMoveTrashLinkedWorktreesAndCurrent": {
-      "extractionState": "manual",
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The repository will move to Trash. Its linked worktrees and their current local branches (including unmerged commits) will be permanently deleted."
-          }
-        },
-        "zh-Hans-CN": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "仓库将移入废纸篓；关联工作树及其当前本地分支（包括未合并提交）将永久删除。"
           }
         }
       }
@@ -8775,6 +8724,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "已暂存工作区改动至 stash"
+          }
+        }
+      }
+    },
+    "ui.status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status"
+          }
+        },
+        "zh-Hans-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "状态"
           }
         }
       }

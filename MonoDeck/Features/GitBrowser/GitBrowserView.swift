@@ -106,7 +106,9 @@ private struct GitBrowserSections: View {
     private func localChangesSection(_ rows: [ChangeNode.Row]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(preferences.text.string(.uiLocalChanges)).font(.system(size: 13)).frame(height: Self.rowHeight)
-            if let error = workspace.detail.changesError { unavailable(error) }
+            if let error = workspace.detail.changesError {
+                GitChangesUnavailable(error: error, text: preferences.text)
+            }
             else if workspace.detail.changes != nil {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -192,7 +194,6 @@ private struct GitBrowserSections: View {
         CGFloat(rowCount + 1) * Self.rowHeight + Self.verticalPadding * 2
     }
 
-    private func unavailable(_ reason: MonoDeckError) -> some View { VStack(alignment: .leading) { Label(preferences.text.string(.uiUnavailable), systemImage: "exclamationmark.circle"); IssueDescriptionView(message: preferences.text.message(reason), details: reason.message, text: preferences.text).foregroundStyle(.secondary) } }
     @ViewBuilder private func status(_ value: String, conflict: Bool, staged: Bool) -> some View {
         let name = FileChange.label(value)
         if name != "—" {
@@ -214,5 +215,45 @@ private struct GitBrowserSections: View {
         let path = root.appending(path: relative), real = PathSafety.canonical(path)
         guard real.path.hasPrefix(PathSafety.canonical(root).path + "/"), PathSafety.exists(path) else { return nil }
         return path
+    }
+}
+
+private struct GitChangesUnavailable: View {
+    let error: MonoDeckError
+    let text: InterfaceText
+    @State private var showingDetails = false
+
+    var body: some View {
+        let summary = message.split(whereSeparator: \.isNewline).joined(separator: " ")
+        let title = text.string(.uiUnavailable)
+        let details = Git.sanitize(error.message)
+        HStack(spacing: 8) {
+            InlineStatusLabel(title: summary.isEmpty ? title : title + " · " + summary,
+                              symbol: "exclamationmark.triangle", iconColor: .orange, font: DialogTypography.body)
+                .help(message.isEmpty ? title : message)
+            if !details.isEmpty, details != message {
+                Button(text.string(.uiDetails)) { showingDetails.toggle() }
+                    .buttonStyle(.link).fixedSize()
+                    .textSelection(.disabled)
+                    .accessibilityValue(text.string(showingDetails ? .uiExpanded : .uiCollapsed))
+                    .detailsPopover(isPresented: $showingDetails) {
+                        ScrollView {
+                            Text(details).font(DialogTypography.path)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
+                        }
+                        .frame(maxHeight: 240).frame(width: 380).padding(16)
+                    }
+            }
+        }
+    }
+
+    private var message: String {
+        switch error.userMessage {
+        case .diagnostic, .git(_, .diagnostic(_)), .gitFailed(_, _, .diagnostic(_)):
+            return ""
+        default:
+            return Git.sanitize(text.message(error))
+        }
     }
 }

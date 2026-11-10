@@ -89,7 +89,7 @@ struct AppUpdateView: View {
                 showingErrorDetails = true
                 return .handled
             })
-            .popover(isPresented: $showingErrorDetails, arrowEdge: .bottom) {
+            .detailsPopover(isPresented: $showingErrorDetails) {
                 if let details {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(model.text.string(.uiDetails)).font(DialogTypography.title)

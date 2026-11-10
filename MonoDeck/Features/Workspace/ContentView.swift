@@ -45,17 +45,7 @@ struct ContentView: View {
                         Text(model.text.string(.uiPreparingWorkspace))
                     }
                 } else if model.workspace.record != nil, model.workspace.maintenanceState == .failed {
-                    Menu {
-                        Button(model.text.string(.uiDetails)) { model.showMaintenanceFailure() }
-                            .disabled(!model.canShowMaintenanceFailure)
-                        Button(model.text.string(.uiRetryMaintenance)) { Task { await model.retryWorkspaceMaintenance() } }
-                            .disabled(!model.canShowMaintenanceFailure)
-                    } label: {
-                        Label(model.text.string(.uiWorkspaceReadOnlyStatus), systemImage: "exclamationmark.triangle")
-                    }.menuStyle(.borderlessButton).labelStyle(.titleAndIcon).fixedSize()
-                        .accessibilityLabel(model.text.string(.uiWorkspaceReadOnlyStatus))
-                } else if let completion = model.presentation.completionMessage {
-                    Label(completion, systemImage: "checkmark.circle")
+                    workspaceReadOnlyStatus
                 } else { Text(model.workspace.record?.rootURL.lastPathComponent ?? "MonoDeck").font(.system(size: 13, weight: .semibold)) }
             }.sharedBackgroundVisibility(.hidden)
         }
@@ -95,6 +85,21 @@ struct ContentView: View {
             model.workspace.setActive(false)
         }
         .onAppear { if !NSApp.isActive { model.workspace.setActive(false) } }
+    }
+
+    private var workspaceReadOnlyStatus: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "exclamationmark.triangle")
+                .foregroundStyle(.orange).accessibilityHidden(true)
+            Menu {
+                Button(model.text.string(.uiDetails)) { model.showMaintenanceFailure() }
+                    .disabled(!model.canShowMaintenanceFailure)
+                Button(model.text.string(.uiRetryMaintenance)) { Task { await model.retryWorkspaceMaintenance() } }
+                    .disabled(!model.canShowMaintenanceFailure)
+            } label: {
+                Text(model.text.string(.uiWorkspaceReadOnlyStatus)).foregroundStyle(.primary)
+            }.menuStyle(.borderlessButton)
+        }.fixedSize()
     }
 
     var mainSheetPresentation: Binding<Bool> {

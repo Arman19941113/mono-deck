@@ -1,14 +1,23 @@
 import SwiftUI
-import AppKit
-import MonoDeckCore
 
 struct WorkingTreeStatus: View {
-    var text: InterfaceText
-    let status: String
+    enum State {
+        case clean, dirty, unavailable, unset
+    }
+
+    let text: InterfaceText
+    let status: State
+
     var body: some View {
-        HStack(spacing: 4) {
-            DesignIcon(name: status == "Clean" ? "Success" : status == "Unset" ? "Unset" : "Warning", size: 16)
-            Text(text.statusText(status)).font(DialogTypography.auxiliary)
-        }.foregroundStyle(status == "Clean" ? Color.green : status == "Dirty" ? Color.orange : DesignStyle.secondary)
+        switch status {
+        case .clean:
+            InlineStatusLabel(title: text.string(.uiClean), symbol: "checkmark.circle", iconColor: .green)
+        case .dirty:
+            InlineStatusLabel(title: text.string(.uiDirty), symbol: "exclamationmark.circle", iconColor: .orange)
+        case .unavailable:
+            InlineStatusLabel(title: text.string(.uiUnavailable), symbol: "info.circle", iconColor: .secondary)
+        case .unset:
+            InlineStatusLabel(title: text.string(.uiUnset), symbol: "minus.circle", iconColor: .secondary)
+        }
     }
 }

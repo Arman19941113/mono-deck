@@ -153,7 +153,7 @@ final class ManagementModel {
         progressPresentation = sheet == nil ? nil : .init(importFileName: importFileName)
         guard let operationID = operations.begin(.management) else { return }
         if let initialPhase { operations.report(.init("", initialPhase), for: operationID) }
-        formError = nil; presentation.completionMessage = nil; session.invalidateReads()
+        formError = nil; session.invalidateReads()
         operationGeneration += 1; let operationToken = operationGeneration
         let contextID = session.contextID
         let report: ProgressHandler = { [self] progress in Task { @MainActor in
@@ -200,7 +200,6 @@ final class ManagementModel {
                 operations.finish(operationID)
                 return
             }
-            let isGroupOperation = ["group.create", "group.edit", "group.delete", "group.member.add", "group.member.delete"].contains(outcome.command)
             let noEffects = outcome.items.allSatisfy { $0.effects.isEmpty }
             if outcome.status == .failed, noEffects, sheet != nil, sheet != .delete, !presentation.quitPending {
                 formError = outcome.message == nil ? outcome.items.filter { $0.message != nil }.map(text.message).joined(separator: "\n") : text.message(outcome)
@@ -220,10 +219,6 @@ final class ManagementModel {
                 presentation.result = text.resultDisplayItems(outcome).isEmpty ? nil : outcome
             } else if outcome.status == .success && !presentation.quitPending {
                 presentation.result = outcome.hasWarnings || outcome.command == "workspace.configuration.import" ? outcome : nil
-                if presentation.result == nil, presentation.resultHost == .main, !isGroupOperation {
-                    presentation.completionMessage = text.string(.uiCompleted)
-                    Task { try? await Task.sleep(for: .seconds(3)); if operationGeneration == operationToken { presentation.completionMessage = nil } }
-                }
             } else if outcome.status == .cancelled, noEffects, !presentation.quitPending { presentation.result = nil }
             else { presentation.result = outcome }
             if presentation.result == nil { presentation.resultHost = .main }
@@ -448,10 +443,23 @@ struct ManagementProgressPresentation {
     var scanningRepositories = false
 }
 struct DeletionPresentation {
+    struct Row: Identifiable {
+        let resource: Resource
+        let target: DeletionTarget?
+
+        var id: Resource.ID { resource.id }
+    }
+
     let request: DeleteRequest?
     let editingGroup: Bool
     let targets: [DeletionTarget]
     let resources: [Resource]
+
+    var rows: [Row] {
+        let ordered = resources.filter { $0.kind != .member } + resources.filter { $0.kind == .member }
+        let targetsByResource = Dictionary(targets.map { ($0.resource, $0) }, uniquingKeysWith: { first, _ in first })
+        return ordered.map { Row(resource: $0, target: targetsByResource[$0]) }
+    }
 
     var confirmationTitle: LocalizedStringResource {
         switch request {

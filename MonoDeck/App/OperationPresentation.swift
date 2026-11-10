@@ -14,7 +14,6 @@ final class OperationPresentation {
     var message: String? { didSet { if message == nil { presentedActionMessage = nil } } }
     var messageTitle: String?
     var messageHost = ResultHost.main
-    var completionMessage: String?
     var quitPending = false
     private(set) var actionMessages: [ActionMessage] = []
     private var presentedActionMessage: ActionMessage?

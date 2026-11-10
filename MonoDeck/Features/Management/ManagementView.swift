@@ -19,22 +19,28 @@ struct ManagementView: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        Group {
+        let deletion = sheet == .delete ? management.deletionPresentation : nil
+        return Group {
             if let progress = management.progressPresentation {
-                OperationProgressView(operations: operations, operationPresentation: presentation, title: progressTitle, context: progress.importFileName ?? (group.isEmpty ? nil : "worktrees/\(group)"), keepsCompletedItems: sheet != .add || progress.importFileName != nil, presentation: progress)
+                OperationProgressView(operations: operations, operationPresentation: presentation, title: progressTitle(deletion: deletion), context: progress.importFileName ?? (group.isEmpty ? nil : "worktrees/\(group)"), keepsCompletedItems: sheet != .add || progress.importFileName != nil, presentation: progress)
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(title).font(DialogTypography.title).frame(minHeight: 22)
-                        if let subtitle { Text(subtitle).font(DialogTypography.body).foregroundStyle(DesignStyle.secondary).fixedSize(horizontal: false, vertical: true) }
-                    }.padding(.horizontal, 24).padding(.top, 24).padding(.bottom, 18)
-                    if sheet != .importRepositories { Divider() }
+                        dialogTitle(deletion: deletion)
+                        if sheet == .importRepositories {
+                            Text(presentation.text.string(.uiChooseRepositoriesCloneIntoWorkspace))
+                                .font(DialogTypography.body).foregroundStyle(DesignStyle.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }.padding(.horizontal, 24).padding(.top, 24).padding(.bottom, sheet == .delete ? 12 : 18)
+                    if hasSectionDividers { Divider() }
                     VStack(alignment: .leading, spacing: 16) {
                         switch sheet {
                         case .add: addForm
                         case .importRepositories: RepositoryImportForm(management: management, text: presentation.text)
                         case .create, .edit: groupForm
-                        case .delete: deletionForm
+                        case .delete:
+                            if let deletion { deletionForm(deletion) }
                         }
                         if let error = management.formError {
                             FormErrorView(message: error,
@@ -42,9 +48,9 @@ struct ManagementView: View {
                                           details: management.formErrorDetails,
                                           detailsTitle: presentation.text.string(.uiDetails))
                         }
-                    }.padding(.horizontal, 24).padding(.top, sheet == .importRepositories ? 0 : 20).padding(.bottom, 24)
-                    if sheet != .importRepositories { Divider() }
-                    actions.padding(.horizontal, 24).padding(.top, sheet == .importRepositories ? 0 : 16).padding(.bottom, 24)
+                    }.padding(.horizontal, 24).padding(.top, hasSectionDividers ? 20 : 0).padding(.bottom, sheet == .delete ? 12 : 24)
+                    if hasSectionDividers { Divider() }
+                    actions(deletion: deletion).padding(.horizontal, 24).padding(.top, hasSectionDividers ? 16 : 0).padding(.bottom, 24)
                 }.frame(width: DesignStyle.sheetWidth)
             }
         }
@@ -54,6 +60,15 @@ struct ManagementView: View {
             focused = true
             if sheet != .delete { management.formError = nil }
             if sheet == .edit, let name = workspace.selection?.groupName { group = name; selected = Set(management.pendingEdit?.0 == name ? management.pendingEdit!.1 : workspace.record?.groups[name]?.repositoryIDs ?? []) }
+        }
+    }
+
+    private var hasSectionDividers: Bool { sheet != .importRepositories && sheet != .delete }
+
+    private func dialogTitle(deletion: DeletionPresentation?) -> some View {
+        HStack(spacing: 8) {
+            if deletion != nil { DialogStatusIcon.caution }
+            Text(title(deletion: deletion)).font(DialogTypography.title).frame(minHeight: 22)
         }
     }
 
@@ -121,7 +136,10 @@ struct ManagementView: View {
                                 HStack {
                                     Text(repo.displayName).padding(.leading, 2)
                                     Spacer(minLength: 8)
-                                    if sheet == .edit { WorkingTreeStatus(text: presentation.text, status: memberStatus(repo.id)) }
+                                    if sheet == .edit {
+                                        WorkingTreeStatus(text: presentation.text, status: memberStatus(repo.id))
+                                            .frame(width: 96, alignment: .leading)
+                                    }
                                 }.frame(maxWidth: .infinity, minHeight: 28).contentShape(Rectangle())
                             }.toggleStyle(.checkbox).accessibilityIdentifier("repository-\(repo.id)")
                                 .padding(.horizontal, 16).frame(height: 28).contentShape(Rectangle())
@@ -157,34 +175,37 @@ struct ManagementView: View {
         return sheet == .create ? ordered + selected.subtracting(ordered).sorted() : ordered
     }
 
-    private var deletionForm: some View {
-        let snapshot = management.deletionPresentation
-        let resources = snapshot.resources.filter { $0.kind != .member } + snapshot.resources.filter { $0.kind == .member }
-        let targetsByResource = Dictionary(snapshot.targets.map { ($0.resource, $0) }, uniquingKeysWith: { first, _ in first })
-        return VStack(alignment: .leading, spacing: 12) {
-            if snapshot.editingGroup { Text(presentation.text.string(.uiGroupRootWorktreeWillBeKept)).font(DialogTypography.auxiliary) }
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(resources) { resource in deletionRow(resource, target: targetsByResource[resource]) }
-                }.padding(.vertical, 4)
-            }.frame(height: CGFloat(min(resources.count, 7) * 28 + 8)).formPlate().textSelection(.enabled)
+    @ViewBuilder private func deletionForm(_ deletion: DeletionPresentation) -> some View {
+        let rows = deletion.rows
+        if !rows.isEmpty {
+            DialogResourceTable(rows: rows,
+                                targetHeading: presentation.text.string(.uiPath),
+                                statusHeading: presentation.text.string(.uiStatus),
+                                visibleRowLimit: 7,
+                                showsBottomDivider: true) { row in
+                deletionTargetLabel(row.resource, target: row.target)
+            } status: { row in
+                if let target = row.target {
+                    WorkingTreeStatus(text: presentation.text, status: deletionStatus(target)).padding(.leading, 6)
+                }
+            }.textSelection(.enabled)
         }
     }
 
-    func deletionRow(_ resource: Resource, target: DeletionTarget?) -> some View {
+    private func deletionTargetLabel(_ resource: Resource, target: DeletionTarget?) -> some View {
+        let path = target?.path ?? workspace.record?.rootURL.appending(path: resource.path).path ?? resource.path
         let risks = target?.riskMessages.map(presentation.text.message).joined(separator: "\n") ?? ""
-        return HStack(spacing: 12) {
-            Text(resource.path).font(DialogTypography.path).lineLimit(1).truncationMode(.middle)
-                .help([target?.path ?? workspace.record?.rootURL.appending(path: resource.path).path ?? resource.path, risks].filter { !$0.isEmpty }.joined(separator: "\n"))
-                .accessibilityHint(risks)
-            Spacer(minLength: 0)
-            WorkingTreeStatus(text: presentation.text, status: "Clean").hidden().overlay(alignment: .trailing) {
-                if let target { WorkingTreeStatus(text: presentation.text, status: deletionStatus(target)) }
-            }.fixedSize()
-        }.padding(.horizontal, 16).frame(height: 28)
+        return DialogResourceLabel(resource: resource, title: resource.path, font: DialogTypography.auxiliary)
+            .help([path, risks].filter { !$0.isEmpty }.joined(separator: "\n"))
+            .accessibilityHint(risks)
     }
 
-    private var actions: some View {
+    private func deletionStatus(_ target: DeletionTarget) -> WorkingTreeStatus.State {
+        guard target.exists, let dirty = target.dirty else { return .unavailable }
+        return dirty ? .dirty : .clean
+    }
+
+    private func actions(deletion: DeletionPresentation?) -> some View {
         HStack(spacing: 8) {
             if sheet == .add {
                 Menu {
@@ -198,42 +219,32 @@ struct ManagementView: View {
                 .fixedSize()
             }
             if sheet == .importRepositories { Button(presentation.text.string(.uiBack)) { management.sheet = .add } }
-            if sheet == .delete && management.deletionPresentation.editingGroup { Button(presentation.text.string(.uiBackEdit)) { management.sheet = .edit } }
+            if deletion?.editingGroup == true { Button(presentation.text.string(.uiBackEdit)) { management.sheet = .edit } }
             Spacer()
             Button(role: .cancel) { management.sheet = nil } label: { Text(presentation.text.string(.uiCancel)).padding(.horizontal, 4) }.keyboardShortcut(.cancelAction)
-            if sheet == .importRepositories { submitButton.buttonStyle(.borderedProminent) }
-            else { submitButton }
+            if sheet == .importRepositories { submitButton(deletion: deletion).buttonStyle(.borderedProminent) }
+            else { submitButton(deletion: deletion) }
         }.controlSize(.regular)
     }
 
-    private var submitButton: some View {
-        Button(role: sheet == .delete ? .destructive : nil) { submit() } label: { Text(actionTitle).padding(.horizontal, 4) }
+    private func submitButton(deletion: DeletionPresentation?) -> some View {
+        Button(role: sheet == .delete ? .destructive : nil) { submit() } label: {
+            Text(actionTitle(editingGroup: deletion?.editingGroup == true)).padding(.horizontal, 4)
+        }
             .keyboardShortcut(sheet == .delete || repositoryFilterFocused ? nil : .defaultAction).disabled(disabled)
     }
 
-    private var title: String {
+    private func title(deletion: DeletionPresentation?) -> String {
         switch sheet {
         case .add: presentation.text.string(.dialogAddRepository)
         case .importRepositories: presentation.text.string(.dialogImportRepositories)
         case .create: presentation.text.string(.dialogCreateWorktreeGroup)
         case .edit: presentation.text.string(.dialogEditGroupMembership)
-        case .delete: presentation.text.string(management.deletionPresentation.confirmationTitle)
+        case .delete: presentation.text.string(deletion?.confirmationTitle ?? .uiDeleteMemberWorktree)
         }
     }
 
-    private var subtitle: String? {
-        if sheet == .importRepositories { return presentation.text.string(.uiChooseRepositoriesCloneIntoWorkspace) }
-        if sheet == .delete {
-            switch management.deletionPresentation.request {
-            case .group: return presentation.text.string(.uiGroupRootWorktreeMembersAndCurrentLocalBranches)
-            case .repository: return presentation.text.string(.uiRepositoryWillMoveTrashLinkedWorktreesAndCurrent)
-            default: return presentation.text.string(.uiLinkedWorktreeAndCurrentLocalBranchIncludingUnmerged)
-            }
-        }
-        return nil
-    }
-
-    private var progressTitle: String {
+    private func progressTitle(deletion: DeletionPresentation?) -> String {
         if management.progressPresentation?.scanningRepositories == true { return presentation.text.string(.uiScanningLocalRepositories) }
         if management.progressPresentation?.importFileName != nil { return presentation.text.string(.uiImportingRepositories) }
         switch sheet {
@@ -241,21 +252,25 @@ struct ManagementView: View {
         case .importRepositories: return presentation.text.string(.uiImportingRepositories)
         case .create: return presentation.text.string(.uiCreatingWorktreeGroup)
         case .edit: return presentation.text.string(.uiEditingWorktreeGroup)
-        case .delete: return presentation.text.string(management.deletionPresentation.progressTitle)
+        case .delete: return presentation.text.string(deletion?.progressTitle ?? .dialogDeletingMemberWorktree)
         }
     }
 
-    func deletionStatus(_ target: DeletionTarget) -> String {
-        guard target.exists, let dirty = target.dirty else { return "Unavailable" }
-        return dirty ? "Dirty" : "Clean"
+    private func actionTitle(editingGroup: Bool) -> String {
+        switch sheet {
+        case .add: presentation.text.string(.uiAdd)
+        case .importRepositories: presentation.text.string(.uiImport)
+        case .create: presentation.text.string(.uiCreate)
+        case .edit: presentation.text.string(.uiSaveChanges)
+        case .delete: presentation.text.string(editingGroup ? .uiSaveChanges : .uiDelete2)
+        }
     }
-    private var actionTitle: String { switch sheet { case .add: presentation.text.string(.uiAdd); case .importRepositories: presentation.text.string(.uiImport); case .create: presentation.text.string(.uiCreate); case .edit: presentation.text.string(.uiSaveChanges); case .delete: management.deletionPresentation.editingGroup ? presentation.text.string(.uiSaveChanges) : presentation.text.string(.uiDelete2) } }
     private var disabled: Bool { switch sheet { case .add: url.isEmpty; case .importRepositories: !management.canConfirmRepositoryImport; case .create: group.isEmpty || selected.isEmpty; case .edit: selected == Set(workspace.record?.groups[group]?.repositoryIDs ?? []); case .delete: !management.canConfirmDelete } }
-    private func memberStatus(_ repo: String) -> String {
-        guard workspace.record?.groups[group]?.repositoryIDs.contains(repo) == true else { return "Unset" }
+    private func memberStatus(_ repo: String) -> WorkingTreeStatus.State {
+        guard workspace.record?.groups[group]?.repositoryIDs.contains(repo) == true else { return .unset }
         let state = workspace.state(for: .member(groupName: group, repositoryID: repo))
-        if state?.available != true { return "Unavailable" }
-        return state?.dirty == true ? "Dirty" : "Clean"
+        if state?.available != true { return .unavailable }
+        return state?.dirty == true ? .dirty : .clean
     }
     private func submit() {
         fieldError = nil; management.formError = nil

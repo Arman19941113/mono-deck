@@ -273,6 +273,9 @@ import Testing
             let preview = try #require(model.management.deletePreviewTask)
             #expect(model.management.sheet == .delete && model.management.deletionLoading && model.management.deletion.isEmpty)
             #expect(model.management.deletionResources == [member, .group("feature")])
+            let initialRows = model.management.deletionPresentation.rows
+            #expect(initialRows.map(\.resource) == [.group("feature"), member])
+            #expect(initialRows.allSatisfy { $0.target == nil })
             #expect(!model.management.canConfirmDelete)
             model.management.confirmDelete()
             #expect(!model.busy && model.operation == nil)
@@ -286,6 +289,9 @@ import Testing
                 #expect(completed.resource == .group("feature") && completed.dirty == false)
                 #expect(model.management.deletionLoading && !model.management.canConfirmDelete)
                 #expect(model.management.deletionResources == [member, .group("feature")])
+                let loadingRows = model.management.deletionPresentation.rows
+                #expect(loadingRows.map(\.id) == initialRows.map(\.id))
+                #expect(loadingRows.map(\.target) == [completed, nil])
                 let lease = try service.store.tryLock(fixture.root); lease.unlock()
                 switch action {
                 case "cancel": model.management.sheet = nil

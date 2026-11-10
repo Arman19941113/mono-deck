@@ -178,7 +178,7 @@ final class AppModel {
         if management.sheet == .delete { management.sheet = nil }
         guard let operationID = operations.begin(.workspace, cancellable: cancellable) else { return false }
         cancelPendingActions()
-        presentation.completionMessage = nil; presentation.resultHost = .settings
+        presentation.resultHost = .settings
         workspace.invalidateReads(cancelReload: true)
         let task = Task {
             await previousEdit?.value

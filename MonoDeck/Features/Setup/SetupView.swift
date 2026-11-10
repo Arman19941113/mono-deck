@@ -32,7 +32,9 @@ struct SetupView: View {
                             pathLabel(model.installer.commandLink)
                         }.frame(maxWidth: .infinity, alignment: .leading)
                         if setup.cliReady && setup.cliActivity == nil {
-                            HStack(spacing: 4) { DesignIcon(name: "Success", size: 20); Text(model.text.string(.uiInstalled)).font(DialogTypography.auxiliary).foregroundStyle(DesignStyle.secondary) }
+                            InlineStatusLabel(title: model.text.string(.uiInstalled),
+                                              symbol: "checkmark.circle", iconColor: .green,
+                                              font: DialogTypography.body)
                         } else {
                             Button { setup.install() } label: {
                                 installButtonLabel
@@ -59,7 +61,8 @@ struct SetupView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         if showsCLIMessage { IssueDescriptionView(message: model.text.message(setup.cliUserMessage ?? .diagnostic(setup.cliMessage)), details: setup.cliMessage, text: model.text) }
                         if setup.skillConflict {
-                            Label(model.text.string(.uiWorkflowSkillUnavailable), systemImage: "exclamationmark.circle")
+                            InlineStatusLabel(title: model.text.string(.uiWorkflowSkillUnavailable),
+                                              symbol: "exclamationmark.circle", iconColor: .orange)
                         }
                         if let error = setup.error { ScrollView { IssueDescriptionView(message: error, details: setup.errorDetails, text: model.text).foregroundStyle(.red).frame(maxWidth: .infinity, alignment: .leading) }.frame(height: 90) }
                     }.font(DialogTypography.auxiliary).foregroundStyle(DesignStyle.secondary)

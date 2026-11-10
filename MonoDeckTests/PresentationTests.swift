@@ -54,7 +54,7 @@ import Testing
             let outcome = OperationResult(command: "group.create", workspace: try #require(model.workspace.record).root, items: [item])
             model.management.run { _, _, _ in outcome }
             await (try #require(model.operation)).value
-            #expect(model.management.sheet == nil && !model.busy && model.presentation.completionMessage == nil)
+            #expect(model.management.sheet == nil && !model.busy)
             let result = try #require(model.presentation.result)
             #expect(result.status == .success && result.exitCode == 0)
             #expect(result.items.first?.data == item.data && result.items.first?.message == item.message)
@@ -147,7 +147,6 @@ import Testing
                     let result = try #require(model.presentation.result)
                     #expect(model.text.resultTitle(result) == model.text.string(.resultWorkspaceImportSkipped))
                 }
-                #expect(model.presentation.completionMessage == nil)
                 model.presentation.quitPending = false
                 model.presentation.dismissResult()
             }

@@ -572,13 +572,11 @@ import SwiftUI
         try FileManager.default.createDirectory(at: fixture.root, withIntermediateDirectories: false)
         let notes = fixture.root.appending(path: "notes.txt")
         try Data("keep me".utf8).write(to: notes)
-        model.presentation.completionMessage = "Completed"
         await model.workspace.maintainWorkspace()
 
         let record = try #require(model.workspace.record)
         #expect(record.repositories.isEmpty && record.groups.isEmpty)
         #expect(model.workspace.selection == nil && model.workspace.blocked == nil && model.presentation.result == nil)
-        #expect(model.presentation.completionMessage == nil)
         #expect(!model.busy && !model.openingWorkspace && model.operation == nil)
         #expect(try fixture.service.store.load(fixture.root) == record)
         for path in [".git", "repositories", "worktrees", ".agents/skills/mono-deck-workflow/SKILL.md", ".agents/skills/mono-deck-workflow/agents/openai.yaml"] {
