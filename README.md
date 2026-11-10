@@ -4,7 +4,7 @@
 
 MonoDeck is a native macOS app that organizes Git worktrees from multiple repositories by task. It gives developers one place to manage cross-repository work and build their own AI workflows.
 
-![MonoDeck](./.github/assets/mono-deck-mock.png)
+![MonoDeck workspace with worktree groups, local changes, and unique commits](./.github/assets/1-workspace-overview.png)
 
 ## Features
 
@@ -42,6 +42,9 @@ xattr -dr com.apple.quarantine /Applications/MonoDeck.app
 1. Launch MonoDeck, then follow Setup to install the CLI and select a workspace directory. For your first workspace, you can use a dedicated empty directory.
 2. Add repositories by URL or use the **Import** menu in the **Add Repository** sheet to scan local repositories. Both methods clone from the remote using your local Git credentials. Uncommitted changes in local repositories stay in their original directories.
 3. Create a group and select its members. A group name must be a single directory component that is also a valid Git branch name, such as `feature-checkout`. The initial branch name defaults to the group name and can be set to a name like `feature/checkout`. Group creation uses local Git references and reuses an existing local branch of the chosen name when available. Members added later use the same initial branch name and branch selection rules.
+
+   ![Create Worktree Group dialog with a group name, an initial branch, and two selected repositories](./.github/assets/2-create-worktree-group.png)
+
 4. Select a group or a member, then use the toolbar to open it in an installed agent, editor, terminal, or Git tool. Develop, commit, and merge in the external tool.
 5. Use Git Browser to inspect local changes, unique commits, and behind commits. Comparisons use the locally recorded remote default branch as their base.
 
@@ -50,6 +53,8 @@ To refresh the remote default branch before creating a group, use **Update Repos
 Use **Update Worktrees** in the `worktrees` section to fast-forward the current branches of registered group roots and members using local Git data. Members use their repository's local `origin/HEAD`. Group roots use the workspace repository's local `origin/HEAD`, falling back to the branch checked out at the workspace root only when that reference is absent.
 
 MonoDeck skips worktrees with an unavailable base, a detached HEAD, uncommitted changes, an ongoing Git operation, or a diverged branch. The results show updates, skips, failures, and items left unfinished after cancellation. Eligible worktrees that already contain the base commit are omitted. Cancellation keeps completed updates. Click a status for details.
+
+![Worktree update results with updated and skipped items organized by group](./.github/assets/3-worktree-update-results.png)
 
 After reinstalling, you can select the original workspace in Setup or Settings. If its workspace record is missing, MonoDeck attempts to rebuild it from local Git data, preserving branches and changes in the repositories and worktrees it recognizes.
 
@@ -80,6 +85,9 @@ MonoDeck maintains the following files and commits them to the workspace reposit
 
 - **Share configuration.** Export the workspace configuration as YAML from Settings, then import it into the target workspace. Import adds missing repositories and groups. It skips repositories whose IDs and remote URLs match and groups whose names match. If a repository ID matches but the remote URL differs, the import reports a conflict.
 - **Deleting a member or group** permanently removes the affected worktrees and their current local branches. Uncommitted changes are removed with the worktrees, and unmerged commits may be lost. Deleting a main repository first removes its associated members and then moves the main repository to Trash. Unlock any locked worktrees with Git before deleting. Review the scope and any work you need to keep before confirming.
+
+  ![Deletion preview showing the member worktree path and its Dirty status](./.github/assets/4-delete-member-worktree.png)
+
 - **Cancellation or partial failure** can leave completed changes in place. Check the results for items that completed and those that still need attention.
 - A member worktree cannot start from a commit that contains **Git submodules**.
 
