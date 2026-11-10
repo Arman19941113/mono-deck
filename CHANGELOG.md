@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.1.0] - 2026-11-10
+
+### Added
+
+- Use **Update Worktrees** in the sidebar to fast-forward group roots and member worktrees using local Git data. Worktrees with uncommitted changes, diverged branches, or other blockers are skipped. Results are grouped by worktree group. Click a status to see the current branch, base branch, and outcome details. Cancellation keeps completed updates.
+
+### Fixed
+
+- Preserve worktree files if Git fails to remove a worktree. MonoDeck restores the files to their original path when possible and reports where they were kept otherwise. Unlock locked worktrees with Git before deleting them.
+- Leave unrelated staged `.gitignore` edits alone when a YAML reimport has no repository ignore rules left to save.
+- Keep sidebar update buttons available during workspace startup and explain when an update cannot start.
+- Fix localization of Git status tooltips and operation details.
+
 ## [2.0.0] - 2026-11-09
 
 ### Changed
