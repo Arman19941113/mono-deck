@@ -7627,6 +7627,23 @@
         }
       }
     },
+    "ui.noRepositoriesToUpdate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There are no repositories to update."
+          }
+        },
+        "zh-Hans-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有可更新的仓库。"
+          }
+        }
+      }
+    },
     "ui.noRepositoriesWereAdded": {
       "extractionState": "manual",
       "localizations": {

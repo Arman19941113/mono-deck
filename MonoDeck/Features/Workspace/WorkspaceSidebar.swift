@@ -127,7 +127,6 @@ struct WorkspaceSidebar: View {
             }
             .buttonStyle(HoverPlainButtonStyle(shape: Circle(), foreground: DesignStyle.secondary, hoverForeground: DesignStyle.secondary))
             .help(updateTitle).accessibilityLabel(updateTitle)
-            .disabled(!workspace.canManage || (repositories ? workspace.sidebarStructure.repositories.isEmpty : workspace.sidebarStructure.groups.isEmpty))
             Button { management.requestForm(add == .add ? .addRepository : .createGroup) } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 13, weight: .semibold)).frame(width: 24, height: 24).accessibilityHidden(true)

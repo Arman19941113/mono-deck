@@ -41,6 +41,31 @@ import Testing
         }
     }
 
+    @Test(arguments: [true, false])
+    func updatesReportPreparationBeforeCheckingForTargets(_ repositories: Bool) async throws {
+        try await withModel(template: .emptyWorkspace) { model, _ in
+            let update = repositories ? model.management.updateRepositories : model.management.updateWorktrees
+            let preparing = model.text.message(WorkspaceActionIssue.preparing)
+
+            model.workspace.maintenanceState = .pending
+            update()
+            #expect(model.presentation.message == preparing && !model.busy)
+            model.dismissMessage()
+
+            model.workspace.maintenanceState = .maintaining
+            let maintenance = try #require(model.operations.begin(.workspace))
+            update()
+            #expect(model.presentation.message == preparing && model.operations.isCurrent(maintenance))
+            model.dismissMessage()
+            model.operations.finish(maintenance)
+
+            model.workspace.maintenanceState = .ready
+            update()
+            let emptyMessage = model.text.string(repositories ? .uiNoRepositoriesToUpdate : .uiNoWorktreesToUpdate)
+            #expect(model.presentation.message == emptyMessage && !model.busy)
+        }
+    }
+
     @Test func entryRequestsCoalesceReplaceAndRecheckOperationOwnership() async throws {
         try await withModel { model, _ in
             model.management.requestForm(.addRepository)
@@ -317,8 +342,8 @@ import Testing
         }
     }
 
-    private func withModel(_ body: (AppModel, Fixture) async throws -> Void) async throws {
-        let fixture = try await Fixture(template: .singleRepository); defer { fixture.remove() }
+    private func withModel(template: FixtureTemplate = .singleRepository, _ body: (AppModel, Fixture) async throws -> Void) async throws {
+        let fixture = try await Fixture(template: template); defer { fixture.remove() }
         let value = try makeModel(fixture)
         defer { value.defaults.removePersistentDomain(forName: value.defaultsSuite) }
         do { try await body(value.model, fixture); await value.model.workspace.stopReads() }

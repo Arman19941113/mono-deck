@@ -85,7 +85,7 @@ final class ManagementModel {
         if openingFormAction == action, openingFormTask?.isCancelled == false { return }
         cancelOpeningForm()
         if let issue = session.managementIssue {
-            presentEntryError(issue, action: action, contextID: session.contextID)
+            presentEntryError(issue, title: action.failureTitle, contextID: session.contextID)
             return
         }
         guard let root = session.record?.rootURL else { return }
@@ -112,7 +112,7 @@ final class ManagementModel {
                 guard !Task.isCancelled, openingFormID == id, session.contextID == contextID,
                       !presentation.quitPending, !(error is CancellationError),
                       (error as? MonoDeckError)?.code != "cancelled" else { return }
-                presentEntryError(error, action: action, contextID: contextID)
+                presentEntryError(error, title: action.failureTitle, contextID: contextID)
             }
         }
     }
@@ -125,8 +125,8 @@ final class ManagementModel {
         }
     }
 
-    private func presentEntryError(_ error: Error, action: ManagementFormAction, contextID: UUID) {
-        presentation.enqueueActionError(error, title: text.string(action.failureTitle), contextID: contextID)
+    private func presentEntryError(_ error: Error, title: LocalizedStringResource, contextID: UUID) {
+        presentation.enqueueActionError(error, title: text.string(title), contextID: contextID)
         if sheet == nil { presentation.presentNextActionMessage(in: session.contextID) }
     }
 
@@ -373,9 +373,28 @@ final class ManagementModel {
         run { service, root, progress in await service.importRepositories(urls, at: root, progress: progress) }
     }
     func importWorkspace(_ text: String, filename: String) { importFileName = filename; run { service, root, progress in await service.importWorkspaceYAML(text, at: root, progress: progress) } }
-    func updateRepositories() { run { service, root, progress in await service.updateRepositories(at: root, progress: progress) } }
+    func updateRepositories() {
+        guard canStartUpdate(title: .uiUpdateRepositories, hasTargets: !session.sidebarStructure.repositories.isEmpty,
+                             emptyMessage: .uiNoRepositoriesToUpdate) else { return }
+        run { service, root, progress in await service.updateRepositories(at: root, progress: progress) }
+    }
     func updateWorktrees() {
+        guard canStartUpdate(title: .uiUpdateWorktrees, hasTargets: !session.sidebarStructure.groups.isEmpty,
+                             emptyMessage: .uiNoWorktreesToUpdate) else { return }
         run({ service, root, progress in await service.updateWorktrees(at: root, progress: progress) }, initialPhase: .updatingWorktrees)
+    }
+
+    private func canStartUpdate(title: LocalizedStringResource, hasTargets: Bool, emptyMessage: LocalizedStringResource) -> Bool {
+        guard sheet == nil, presentation.result == nil, presentation.message == nil, !presentation.mainSheetVisible else { return false }
+        if let issue = session.managementIssue {
+            presentEntryError(issue, title: title, contextID: session.contextID)
+            return false
+        }
+        guard hasTargets else {
+            presentation.presentMessage(text.string(emptyMessage), title: text.string(title))
+            return false
+        }
+        return true
     }
 
     func presentError(_ error: Error) {
