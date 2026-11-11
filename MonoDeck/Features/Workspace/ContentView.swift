@@ -19,7 +19,6 @@ struct ContentView: View {
         }
         .navigationTitle(model.workspace.record?.rootURL.lastPathComponent ?? "MonoDeck")
         .toolbar(removing: .title)
-        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 if model.showsMainOperationProgress {
