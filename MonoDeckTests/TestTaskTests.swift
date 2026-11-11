@@ -128,7 +128,10 @@ private struct TestTaskFixture {
           (Path(os.environ['MONO_DECK_TEST_SESSION_DIRECTORY']) / 'hosts' / 'identity.json').write_text('{}')
       if os.environ['MONO_DECK_SCRIPT_TEST_OUTCOME'] == 'waiting':
           helper = subprocess.Popen(['/bin/sleep', '30'])
-          (base / 'helper.pid').write_text(str(helper.pid))
+          # The test treats the appearance of helper.pid as a readiness signal.
+          temporary = base / 'helper.pid.tmp'
+          temporary.write_text(str(helper.pid))
+          temporary.replace(base / 'helper.pid')
           time.sleep(30)
       sys.exit(65 if os.environ['MONO_DECK_SCRIPT_TEST_OUTCOME'] == 'failed' else 0)
       """
