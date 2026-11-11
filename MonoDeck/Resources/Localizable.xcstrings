@@ -5070,6 +5070,23 @@
         }
       }
     },
+    "ui.aboutMonoDeck": {
+      "extractionState": "manual",
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "About MonoDeck"
+          }
+        },
+        "zh-Hans-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关于 MonoDeck"
+          }
+        }
+      }
+    },
     "ui.actions": {
       "extractionState": "manual",
       "localizations": {

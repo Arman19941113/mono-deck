@@ -7,6 +7,7 @@ import Observation
     weak var model: AppModel?
     @ObservationIgnored private(set) weak var mainWindow: NSWindow?
     @ObservationIgnored weak var settingsWindow: NSWindow?
+    @ObservationIgnored var startupSetupAnchor: AuxiliaryWindowPlacement.Anchor?
     private(set) var mainWindowIsOpen = false
     private(set) var startupTask: Task<Void, Never>?
     private(set) var terminationTask: Task<Void, Never>?
@@ -117,6 +118,22 @@ import Observation
         if mainWindow.isMiniaturized { mainWindow.deminiaturize(nil) }
         mainWindow.makeKeyAndOrderFront(nil)
         mainWindow.attachedSheet?.makeKeyAndOrderFront(nil)
+    }
+
+    var mainWindowAnchor: AuxiliaryWindowPlacement.Anchor? {
+        guard let mainWindow, mainWindow.isVisible, !mainWindow.isMiniaturized,
+              let screen = mainWindow.screen else { return nil }
+        return AuxiliaryWindowPlacement.Anchor(frame: mainWindow.frame, visibleFrame: screen.visibleFrame)
+    }
+
+    func showAboutPanel() {
+        let anchor = mainWindowAnchor
+        let visibleWindows = Set(NSApp.windows.filter(\.isVisible))
+        NSApp.orderFrontStandardAboutPanel(nil)
+        // AppKit shows the standard panel without returning its window.
+        if let anchor, let panel = NSApp.windows.first(where: { $0.isVisible && !visibleWindows.contains($0) }) {
+            anchor.center(panel)
+        }
     }
 
     @objc private func mainWindowDidBecomeKey() { mainWindowIsOpen = true }

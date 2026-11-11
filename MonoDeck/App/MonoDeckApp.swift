@@ -75,7 +75,7 @@ struct MonoDeckApp: App {
             openWindow(id: "updates")
         }
         .windowToolbarStyle(.unifiedCompact)
-        .commands { AppCommands(model: model, startupWindowReady: startupWindowReady) }
+        .commands { AppCommands(model: model, startupWindowReady: startupWindowReady, showAboutPanel: delegate.showAboutPanel) }
         Window(model.text.string(.uiMonoDeckSetup), id: "setup") {
             SetupView(model: model, preparedSetup: startupSetup, canReturnToMainWindow: { delegate.mainWindowIsOpen }, returnToMainWindow: delegate.returnToMainWindow)
                 .id(model.workspace.record?.root ?? model.defaults.string(forKey: "workspace"))
@@ -84,6 +84,8 @@ struct MonoDeckApp: App {
                 .fixedSize(horizontal: false, vertical: true)
                 .background(WindowChromeHeight(height: $setupChromeHeight))
                 .background(WindowCloseHandler(shouldQuit: { !delegate.mainWindowIsOpen }, onClose: delegate.returnToMainWindow))
+                .background(AuxiliaryWindowPlacement { delegate.mainWindowAnchor ?? delegate.startupSetupAnchor })
+                .onDisappear { delegate.startupSetupAnchor = nil }
         }
         .windowResizability(.contentSize)
         .defaultLaunchBehavior(.suppressed)
@@ -91,6 +93,7 @@ struct MonoDeckApp: App {
         .commandsRemoved()
         Window(model.text.string(.uiSoftwareUpdate), id: "updates") {
             AppUpdateView(model: model.updates, waitingForOperation: model.busy, waitingForResult: model.presentation.result != nil)
+                .background(AuxiliaryWindowPlacement { delegate.mainWindowAnchor })
                 .environment(\.locale, model.preferences.activeLocale.locale)
         }
         .windowResizability(.contentSize)
@@ -104,7 +107,7 @@ struct MonoDeckApp: App {
             })
                 .frame(width: 640, height: 480 - settingsChromeHeight)
                 .background(WindowChromeHeight(height: $settingsChromeHeight, onWindow: { delegate.settingsWindow = $0 }))
-                .background(SettingsWindowPlacement(size: CGSize(width: 640, height: 480), sourceWindow: { delegate.mainWindow }))
+                .background(AuxiliaryWindowPlacement(expectedSize: CGSize(width: 640, height: 480)) { delegate.mainWindowAnchor })
                 .environment(\.locale, model.preferences.activeLocale.locale)
         }
         .windowToolbarStyle(.unifiedCompact)
@@ -126,6 +129,8 @@ struct MonoDeckApp: App {
             return
         }
         startupNeedsSetup = false; startupWindowReady = true
+        // Setup can appear after the startup transition closes the main window.
+        delegate.startupSetupAnchor = delegate.mainWindowAnchor
         openWindow(id: "setup"); dismissWindow(id: "main")
     }
 

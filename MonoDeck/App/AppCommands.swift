@@ -3,10 +3,12 @@ import SwiftUI
 struct AppCommands: Commands {
     var model: AppModel
     var startupWindowReady: Bool
+    var showAboutPanel: () -> Void
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
-        CommandGroup(after: .appInfo) {
+        CommandGroup(replacing: .appInfo) {
+            Button(model.text.string(.uiAboutMonoDeck), action: showAboutPanel)
             Button(model.text.string(.uiCheckForUpdates)) {
                 openWindow(id: "updates")
                 model.updates.check()
