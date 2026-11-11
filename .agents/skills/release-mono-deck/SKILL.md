@@ -1,47 +1,38 @@
 ---
 name: release-mono-deck
-description: Update the MonoDeck version and CHANGELOG, then create a local release commit and Git tag, only when explicitly invoked as $release-mono-deck.
+description: Prepare a MonoDeck release commit and tag, then ask whether to push the tag. Runs only when explicitly invoked as $release-mono-deck.
 ---
 
 # Release MonoDeck
 
-## Scope and entry points
-
-- Run from the MonoDeck source repository root. Follow repository instructions and task-specific references; review `Version.xcconfig` and `.github/workflows/ci.yml`.
-- An explicit request for the full workflow authorizes staging and committing only `Version.xcconfig` and `CHANGELOG.md`, and creating the corresponding local tag. Viewing or editing this skill does not start a release.
-- Pushing branches or tags and creating GitHub Releases are outside this workflow. Pushing a `v*` tag triggers CI publication.
-- Change product version and build number only in `Version.xcconfig`, not generated `MonoDeckVersion`. Workspace YAML `version`, CLI JSON `schema-version`, and dependency versions are independent.
+Run from the MonoDeck source repository root. Review `Version.xcconfig` and `.github/workflows/ci.yml`. A request to run the full release authorizes staging and committing only `Version.xcconfig` and `CHANGELOG.md` and creating the local tag. The optional remote step covers that tag only and requires separate confirmation in chat.
 
 ## 1. Check the working tree and resume state
 
-- For a new run, `git status --porcelain=v1 --untracked-files=all` must be empty. Otherwise list the changes and stop; do not automatically commit, stash, discard, or clean them.
-- Confirm the intended release branch and no merge, rebase, or similar operation in progress. Record the branch and starting HEAD; keep all operations in this repository, not MonoDeck-managed repositories or worktrees.
-- On failure, preserve state without automatic rollback or tag deletion. Before resuming, verify the recorded branch, starting HEAD, target version, changes to the two files, and any release commit or tag. Continue from the failed step without repeating completed build increments, commits, or tags. Stop and explain if unrelated changes appear or ownership is uncertain.
+- Confirm the intended release branch and that no merge, rebase, or similar operation is in progress. Record the starting HEAD. For a new release, require empty output from `git status --porcelain=v1 --untracked-files=all`. If the tree is dirty, list the changes and stop.
+- On failure, preserve state and report completed and pending work. To resume, verify the branch, starting HEAD, version, both release files, and any release commit or tag. Continue from the first unfinished step. Stop if unrelated changes appear or ownership is uncertain.
 
-## 2. Confirm the version and update configuration
+## 2. Choose the version
 
-- Use the highest semantic version among local stable `vX.Y.Z` tags as the baseline, not tag creation time. It must be an ancestor of the starting HEAD; otherwise explain and wait for the user to choose a baseline. With no release tags, explain that this is the first release and use all history through the starting HEAD.
-- Review commits, diff statistics, and relevant actual diffs from the baseline to the starting HEAD. Summarize resulting behavior, not just commit titles.
-- Use a supplied version after removing an optional leading `v`. Require `X.Y.Z`: three nonnegative integers without leading zeros or suffixes. It must exceed the baseline and be at least the current `MARKETING_VERSION`; an already configured but untagged target may proceed. The corresponding tag must not exist; never overwrite or move a tag.
-- If no version is supplied, recommend a version based on the actual changes. Use a patch for compatible fixes, a minor version for compatible features, or a major version for incompatible behavior or interfaces. Offer other concrete versions only when they fit the changes and pass the version checks above.
-- When the user needs to choose a version, ask one question through Codex's interactive choice UI using `request_user_input` or `request_user_input_async`, depending on availability in the current mode. List the recommended version first, label it as recommended, and briefly explain the options in the question or option descriptions. Use the UI's free-text entry for a custom version. If the tool requires a second choice and there is only one suitable version, offer to defer the release. Ask in chat if the interactive UI is unavailable.
-- Wait for an explicit version choice before editing, committing, or tagging. A preselected option, dismissal, or unanswered question leaves the release pending. Validate the chosen version using the same rules as a supplied version.
-- Once settled, recheck that the working tree is clean and the branch and HEAD are unchanged; stop and reassess otherwise. Set `MARKETING_VERSION` and increment the current integer `CURRENT_PROJECT_VERSION` by one without resetting it. If the build number is not an integer, explain and confirm how to proceed. Preserve other configuration and formatting.
+- Use the highest local stable `vX.Y.Z` tag by semantic version as the baseline. If it is outside the starting HEAD's ancestry, wait for the user to choose a baseline. For a first release, tell the user and use all history through the starting HEAD. Review commits and relevant diffs in that range.
+- Accept `X.Y.Z` with an optional `v` prefix and three nonnegative integers without leading zeros. The version must exceed the baseline, be at least `MARKETING_VERSION`, and have an unused tag.
+- If the user gives no version, recommend a patch for compatible fixes, a minor for compatible features, or a major for breaking changes. Ask one interactive question with the recommendation first and briefly explain the valid options. Use chat if the choice UI is unavailable. If the UI requires a second option and only one version fits, offer to defer. Wait for an explicit choice and validate it before editing.
+- Recheck the clean tree, branch, and starting HEAD. In `Version.xcconfig`, change only `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION`, incrementing the build number by one. If the build number is not an integer, ask how to proceed.
 
-## 3. Update CHANGELOG.md
+## 3. Update the changelog
 
-- Use `## [X.Y.Z] - YYYY-MM-DD` with the user's local date and the existing English category headings. Insert after Unreleased, if present, before historical releases. If `CHANGELOG.md` is absent, create it beginning with `# Changelog`.
-- Describe actual, completed changes from the comparison range in concise English, focusing on user impact; merge duplicates. Judge actual diffs, not commit types. Omit internal refactoring, tests, CI, tooling, dependencies, documentation, and skill changes without user impact; do not copy commits, enumerate implementation details, or invent benefits or test results. Highlight installation, upgrade, and compatibility changes, including CLI arguments, JSON, workspace YAML, and minimum macOS requirements. Include migration or recovery steps when users must act.
-- If the range contains only internal maintenance with no user impact, use one concise English note stating that fact to keep the section nonempty.
-- Move this release's entries out of Unreleased, retaining other entries and historical releases. Verify the origin of any existing target-version section before editing it to avoid duplication.
-- Run `python3 script/release_notes.py v<version>` and review the extracted notes. Fix validation failures before committing or tagging; CI reuses the section, so no separate release notes are needed.
+- Add `## [X.Y.Z] - YYYY-MM-DD` using the user's local date and existing English category headings. Place it after Unreleased, if present, and before older releases. Start a missing `CHANGELOG.md` with `# Changelog`. Move this release's entries out of Unreleased and verify the origin of any existing section for the target version before editing it.
+- Write concise English notes on completed changes users will notice. Merge duplicates and cover installation, upgrade, and compatibility changes, including any required migration or recovery steps. For an internal-only release, use one short maintenance note.
+- Run `python3 script/release_notes.py v<version>` and review the notes CI will use. Resolve validation failures before committing.
 
-## 4. Commit and create the tag
+## 4. Commit and tag
 
-- Present the version, build number change, CHANGELOG summary, and intended tag. Once the user has specified or selected the version and requested the full workflow, do not ask again to stage, commit, or create the local tag.
-- Run `git diff --check` and review both files' full diff. Recheck the starting branch and HEAD, absence of the target tag, and that only the expected changes to these two files exist. Stop on unrelated changes.
-- Before committing, run `task test TEST_FILTER=MonoDeckTests/VersionTests`. Confirm test-environment exit and cleanup through `run_tests.py`; stop without committing or tagging if tests or cleanup fail.
-- Stage only the two files with `git add -- Version.xcconfig CHANGELOG.md`. Check `git diff --cached --check`, `git diff --cached --name-only`, and the staged diff for exactly these two files. Never use `git add .` or `git commit -a`.
-- Use a Conventional Commits message in the language of the five most recent commits, for example `chore(release): vX.Y.Z`. Verify that the release commit's parent is the starting HEAD and only the two target files changed.
-- Create an annotated tag: `git tag -a "v<version>" -m "v<version>" <release-commit>`. Verify `git rev-parse "v<version>^{commit}"` equals the release commit SHA, committed version fields and CHANGELOG heading match the tag, and the working tree is clean.
-- Report version, build number, local commit SHA and tag, and verification results. If committing or tagging fails, stop subsequent steps and report completed and unfinished work; follow the state-preservation and resume rules above.
+- Preview the version, build number change, changelog summary, and tag. Run `git diff --check` and review the full diff. Confirm the branch and HEAD still match the starting state, the tag is unused, and only the two release files changed.
+- Run `task test TEST_FILTER=MonoDeckTests/VersionTests`. Proceed only after tests pass and `run_tests.py` confirms the test environment exited and was cleaned up.
+- Stage with `git add -- Version.xcconfig CHANGELOG.md`. Run `git diff --cached --check` and review the staged diff. Verify only those two files are staged. Commit with a Conventional Commits message in the language of the five latest commits, such as `chore(release): vX.Y.Z`. Verify the parent is the starting HEAD and the commit contains only the two release files.
+- Create the annotated tag with `git tag -a "v<version>" -m "v<version>" <release-commit>`. Verify `git rev-parse "v<version>^{commit}"` matches the release commit, the committed version fields and changelog heading match the release, and the tree is clean.
+
+## 5. Ask whether to push the release tag
+
+- Report the version, build number, commit SHA, tag, and verification results. Ask in chat whether to push the exact tag to the named remote and explain that the push triggers CI publication. Wait for explicit approval.
+- Recheck the tag's target and push with `git push --no-follow-tags <remote> refs/tags/v<version>:refs/tags/v<version>`. Verify the remote tag matches the local annotated tag and report the result.
