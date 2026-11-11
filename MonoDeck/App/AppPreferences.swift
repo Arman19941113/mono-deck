@@ -3,35 +3,52 @@ import Observation
 
 @MainActor @Observable
 final class AppPreferences {
-    let defaults: UserDefaults
-    var appLanguage: AppLanguage { didSet { defaults.set(appLanguage.rawValue, forKey: "appLanguage") } }
-    var automaticallyChecksForUpdates: Bool { didSet { defaults.set(automaticallyChecksForUpdates, forKey: "automaticallyChecksForUpdates") } }
-    var lastUpdateCheck: Date? { didSet { defaults.set(lastUpdateCheck, forKey: "lastUpdateCheck") } }
-    let activeLocale: AppLocale
-    private let preferredLanguages: [String]
-    var text: InterfaceText { InterfaceText(locale: activeLocale) }
-    var globalShortcut: GlobalShortcut? {
-        didSet {
-            if let globalShortcut, let data = try? JSONEncoder().encode(globalShortcut) { defaults.set(data, forKey: "globalShortcut") }
-            // Keep a stored value so clearing does not restore the default on the next launch.
-            else { defaults.set(Data(), forKey: "globalShortcut") }
-        }
+  let defaults: UserDefaults
+  var appLanguage: AppLanguage {
+    didSet { defaults.set(appLanguage.rawValue, forKey: "appLanguage") }
+  }
+  var automaticallyChecksForUpdates: Bool {
+    didSet { defaults.set(automaticallyChecksForUpdates, forKey: "automaticallyChecksForUpdates") }
+  }
+  var lastUpdateCheck: Date? { didSet { defaults.set(lastUpdateCheck, forKey: "lastUpdateCheck") } }
+  let activeLocale: AppLocale
+  private let preferredLanguages: [String]
+  var text: InterfaceText { InterfaceText(locale: activeLocale) }
+  var globalShortcut: GlobalShortcut? {
+    didSet {
+      if let globalShortcut, let data = try? JSONEncoder().encode(globalShortcut) {
+        defaults.set(data, forKey: "globalShortcut")
+      }
+      // Keep a stored value so clearing does not restore the default on the next launch.
+      else {
+        defaults.set(Data(), forKey: "globalShortcut")
+      }
     }
+  }
 
-    init(defaults: UserDefaults, preferredLanguages: [String] = AppLocalization.systemPreferredLanguages) {
-        self.defaults = defaults
-        self.preferredLanguages = preferredLanguages
-        automaticallyChecksForUpdates = defaults.object(forKey: "automaticallyChecksForUpdates") as? Bool ?? true
-        lastUpdateCheck = defaults.object(forKey: "lastUpdateCheck") as? Date
-        let appLanguage = AppLanguage(rawValue: defaults.string(forKey: "appLanguage") ?? "") ?? .system
-        self.appLanguage = appLanguage
-        activeLocale = appLanguage.resolve(preferredLanguages: preferredLanguages)
-        if defaults.object(forKey: "globalShortcut") == nil { globalShortcut = .default }
-        else if let data = defaults.data(forKey: "globalShortcut"), let shortcut = try? JSONDecoder().decode(GlobalShortcut.self, from: data), shortcut.isValid { globalShortcut = shortcut }
-        else { globalShortcut = nil }
+  init(
+    defaults: UserDefaults, preferredLanguages: [String] = AppLocalization.systemPreferredLanguages
+  ) {
+    self.defaults = defaults
+    self.preferredLanguages = preferredLanguages
+    automaticallyChecksForUpdates =
+      defaults.object(forKey: "automaticallyChecksForUpdates") as? Bool ?? true
+    lastUpdateCheck = defaults.object(forKey: "lastUpdateCheck") as? Date
+    let appLanguage = AppLanguage(rawValue: defaults.string(forKey: "appLanguage") ?? "") ?? .system
+    self.appLanguage = appLanguage
+    activeLocale = appLanguage.resolve(preferredLanguages: preferredLanguages)
+    if defaults.object(forKey: "globalShortcut") == nil {
+      globalShortcut = .default
+    } else if let data = defaults.data(forKey: "globalShortcut"),
+      let shortcut = try? JSONDecoder().decode(GlobalShortcut.self, from: data), shortcut.isValid
+    {
+      globalShortcut = shortcut
+    } else {
+      globalShortcut = nil
     }
+  }
 
-    func languageChangeRequiresRestart(_ language: AppLanguage) -> Bool {
-        language.resolve(preferredLanguages: preferredLanguages) != activeLocale
-    }
+  func languageChangeRequiresRestart(_ language: AppLanguage) -> Bool {
+    language.resolve(preferredLanguages: preferredLanguages) != activeLocale
+  }
 }

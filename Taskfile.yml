@@ -2,6 +2,7 @@ version: '3'
 
 vars:
   SCRIPT_ARGS: '{{range .CLI_ARGS | splitArgs}} {{. | shellQuote}}{{end}}'
+  SWIFT_SOURCE_DIRS: MonoDeck MonoDeckCore MonoDeckCLI MonoDeckTests script
 
 tasks:
   default:
@@ -47,6 +48,16 @@ tasks:
       vars: [PID]
     cmds:
       - /usr/bin/swift -module-cache-path "${TMPDIR%/}/mono-deck-verification-module-cache" script/quit_app.swift {{.PID | shellQuote}}
+
+  format:
+    desc: Format all Swift source directories or the specified paths
+    cmds:
+      - xcrun swift-format format --configuration .swift-format --in-place --recursive --{{if .CLI_ARGS}}{{.SCRIPT_ARGS}}{{else}} {{.SWIFT_SOURCE_DIRS}}{{end}}
+
+  format:check:
+    desc: Check formatting across all Swift source directories
+    cmds:
+      - xcrun swift-format lint --strict --recursive --configuration .swift-format -- {{.SWIFT_SOURCE_DIRS}}
 
   test:
     desc: Run unit tests in isolation and clean up afterward (filter with TEST_FILTER, fail if no tests run)

@@ -1,5 +1,5 @@
 import Foundation
 
 public struct LocalRepositoryScan: Sendable {
-    public var urls: [String] = []
+  public var urls: [String] = []
 }

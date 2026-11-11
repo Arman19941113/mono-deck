@@ -1,290 +1,343 @@
 import Foundation
 import Testing
-@testable import MonoDeckCore
+
 @testable import MonoDeck
+@testable import MonoDeckCore
 
 @MainActor struct ActivationReadSchedulingTests {
-    @Test(arguments: [Resource.repository("repo"), Resource.group("feature")], [false, true])
-    func startupMaintenanceOnlyRereadsDetailsAffectedByItsChanges(_ resource: Resource, _ changesWorkspaceGit: Bool) async throws {
-        let f = try await Fixture(template: .singleRepository); defer { f.remove() }
-        try await f.prepareGroup("feature", repositoryIDs: ["repo"])
-        let record = try f.service.store.load(f.root)
-        let defaults = try #require(UserDefaults(suiteName: f.directory.lastPathComponent))
-        defer { defaults.removePersistentDomain(forName: f.directory.lastPathComponent) }
-        let installer = try f.makeCLIInstaller()
-        let initial = AppModel(defaults: defaults, service: f.service, installer: installer)
-        defaults.set(record.root, forKey: "workspace")
-        initial.workspace.record = record
-        await initial.workspace.maintainWorkspace()
-        initial.workspace.selection = resource
-        await initial.workspace.details.detailTask?.value
-        await initial.workspace.stopReads()
-        if changesWorkspaceGit { try FileManager.default.removeItem(at: f.root.appending(path: ".gitignore")) }
-
-        let counts = ActivationReadCounts()
-        let reopened = AppModel(defaults: defaults, service: f.service, installer: installer, diagnostics: counts.diagnostics)
-        #expect(await reopened.start() == false)
-        await reopened.workspace.details.detailTask?.value
-        #expect(reopened.workspace.canManage && reopened.workspace.detail.summary != nil)
-        if changesWorkspaceGit && resource.kind == .group {
-            #expect(counts.count("detail.read") >= 2)
-        } else {
-            #expect(counts.count("detail.read") == 1)
-        }
-        await reopened.workspace.stopReads()
+  @Test(arguments: [Resource.repository("repo"), Resource.group("feature")], [false, true])
+  func startupMaintenanceOnlyRereadsDetailsAffectedByItsChanges(
+    _ resource: Resource, _ changesWorkspaceGit: Bool
+  ) async throws {
+    let f = try await Fixture(template: .singleRepository)
+    defer { f.remove() }
+    try await f.prepareGroup("feature", repositoryIDs: ["repo"])
+    let record = try f.service.store.load(f.root)
+    let defaults = try #require(UserDefaults(suiteName: f.directory.lastPathComponent))
+    defer { defaults.removePersistentDomain(forName: f.directory.lastPathComponent) }
+    let installer = try f.makeCLIInstaller()
+    let initial = AppModel(defaults: defaults, service: f.service, installer: installer)
+    defaults.set(record.root, forKey: "workspace")
+    initial.workspace.record = record
+    await initial.workspace.maintainWorkspace()
+    initial.workspace.selection = resource
+    await initial.workspace.details.detailTask?.value
+    await initial.workspace.stopReads()
+    if changesWorkspaceGit {
+      try FileManager.default.removeItem(at: f.root.appending(path: ".gitignore"))
     }
 
-    @Test(arguments: ["none", "context", "invalidation"])
-    func maintenancePauseOnlyRefreshesInvalidDetails(_ change: String) async throws {
-        let f = try await Fixture(template: .singleRepository); defer { f.remove() }
-        let record = try f.service.store.load(f.root), resource = Resource.repository("repo")
-        let path = record.repositoryURL("repo")
-        let defaults = try #require(UserDefaults(suiteName: f.directory.lastPathComponent))
-        defer { defaults.removePersistentDomain(forName: f.directory.lastPathComponent) }
-        let counts = ActivationReadCounts()
-        let details = GitBrowserModel(service: f.service, defaults: defaults, diagnostics: counts.diagnostics)
-        details.refresh(resource, in: record)
-        await details.detailTask?.value
-        do {
-            details.pause(keepingCurrentDetail: true)
-            switch change {
-            case "context": _ = try await f.service.git.run(["config", "user.name", "Updated Author"], at: path)
-            case "invalidation": details.invalidate(resources: [resource])
-            default: break
-            }
-            #expect(!details.detailLoading && counts.count("detail.read") == 1)
-            details.resume()
-            if change == "none" {
-                #expect(!details.detailLoading && counts.count("detail.read") == 1)
-            } else {
-                try await eventually { counts.count("detail.read") == 2 && !details.detailLoading }
-            }
-            details.stop(); await details.waitForReads()
-        } catch {
-            details.stop(); await details.waitForReads()
-            throw error
-        }
+    let counts = ActivationReadCounts()
+    let reopened = AppModel(
+      defaults: defaults, service: f.service, installer: installer, diagnostics: counts.diagnostics)
+    #expect(await reopened.start() == false)
+    await reopened.workspace.details.detailTask?.value
+    #expect(reopened.workspace.canManage && reopened.workspace.detail.summary != nil)
+    if changesWorkspaceGit && resource.kind == .group {
+      #expect(counts.count("detail.read") >= 2)
+    } else {
+      #expect(counts.count("detail.read") == 1)
     }
+    await reopened.workspace.stopReads()
+  }
 
-    @Test(arguments: [false, true])
-    func selectionReusesTenSecondDetailsWithoutExtendingFreshness(_ preloaded: Bool) async throws {
-        let f = try await Fixture(template: .singleRepository); defer { f.remove() }
-        try await f.prepareEmptyGroup("other")
-        let record = try f.service.store.load(f.root), resource = Resource.repository("repo")
-        let defaults = try #require(UserDefaults(suiteName: f.directory.lastPathComponent))
-        defer { defaults.removePersistentDomain(forName: f.directory.lastPathComponent) }
-        let clock = ActivationReadClock(), counts = ActivationReadCounts()
-        let details = GitBrowserModel(service: f.service, defaults: defaults,
-                                           now: { clock.now }, diagnostics: counts.diagnostics)
-        do {
-            if preloaded {
-                details.setPreloadScope(in: record, including: [resource])
-                details.drainPreload()
-                await details.detailPreloadTask?.value
-                details.drainPreload()
-                await details.snapshotPreloadTask?.value
-                #expect(counts.count("detail.preload.completed") == 1)
-            } else {
-                details.refresh(resource, in: record)
-                await details.detailTask?.value
-            }
-            details.refresh(.group("other"), in: record)
-            await details.detailTask?.value
-            let reads = counts.count("detail.read")
-            clock.now = clock.now.advanced(by: .milliseconds(9_999))
-            details.refresh(resource, in: record)
-            #expect(details.detailTask == nil && !details.snapshotLoading)
-            #expect(details.detail.summary != nil && details.detail.uniqueCommits != nil)
-            #expect(counts.count("detail.read") == reads && counts.count("detail.selection.hit") == 1)
-
-            details.refresh(nil, in: record)
-            clock.now = clock.now.advanced(by: .milliseconds(1))
-            details.refresh(resource, in: record)
-            let expired = try #require(details.detailTask)
-            await expired.value
-            #expect(counts.count("detail.read") == reads + 1)
-            details.stop(); await details.waitForReads()
-        } catch {
-            details.stop(); await details.waitForReads()
-            throw error
-        }
+  @Test(arguments: ["none", "context", "invalidation"])
+  func maintenancePauseOnlyRefreshesInvalidDetails(_ change: String) async throws {
+    let f = try await Fixture(template: .singleRepository)
+    defer { f.remove() }
+    let record = try f.service.store.load(f.root)
+    let resource = Resource.repository("repo")
+    let path = record.repositoryURL("repo")
+    let defaults = try #require(UserDefaults(suiteName: f.directory.lastPathComponent))
+    defer { defaults.removePersistentDomain(forName: f.directory.lastPathComponent) }
+    let counts = ActivationReadCounts()
+    let details = GitBrowserModel(
+      service: f.service, defaults: defaults, diagnostics: counts.diagnostics)
+    details.refresh(resource, in: record)
+    await details.detailTask?.value
+    do {
+      details.pause(keepingCurrentDetail: true)
+      switch change {
+      case "context":
+        _ = try await f.service.git.run(["config", "user.name", "Updated Author"], at: path)
+      case "invalidation": details.invalidate(resources: [resource])
+      default: break
+      }
+      #expect(!details.detailLoading && counts.count("detail.read") == 1)
+      details.resume()
+      if change == "none" {
+        #expect(!details.detailLoading && counts.count("detail.read") == 1)
+      } else {
+        try await eventually { counts.count("detail.read") == 2 && !details.detailLoading }
+      }
+      details.stop()
+      await details.waitForReads()
+    } catch {
+      details.stop()
+      await details.waitForReads()
+      throw error
     }
+  }
 
-    @Test func explicitRefreshAndInvalidationBypassSelectionCooldown() async throws {
-        let f = try await Fixture(template: .singleRepository); defer { f.remove() }
-        let record = try f.service.store.load(f.root), resource = Resource.repository("repo")
-        let defaults = try #require(UserDefaults(suiteName: f.directory.lastPathComponent))
-        defer { defaults.removePersistentDomain(forName: f.directory.lastPathComponent) }
-        let clock = ActivationReadClock(), counts = ActivationReadCounts()
-        let details = GitBrowserModel(service: f.service, defaults: defaults,
-                                           now: { clock.now }, diagnostics: counts.diagnostics)
-        do {
-            details.refresh(resource, in: record)
-            await details.detailTask?.value
-            details.refresh(nil, in: record)
-            details.refresh(resource, in: record)
-            #expect(details.detailTask == nil && counts.count("detail.selection.hit") == 1)
-
-            try Data("tracked change".utf8).write(to: record.repositoryURL("repo").appending(path: "README"))
-            #expect(!details.hasActiveReads && details.detail.changes?.isEmpty == true)
-            details.refresh(resource, in: record, userInitiated: true)
-            await details.detailTask?.value
-            #expect(counts.count("detail.read") == 2 && details.detail.changes?.map(\.path) == ["README"])
-            details.refresh(nil, in: record)
-            details.invalidate(resources: [resource])
-            details.refresh(resource, in: record)
-            let invalidated = try #require(details.detailTask)
-            await invalidated.value
-            #expect(counts.count("detail.read") == 3)
-            details.stop(); await details.waitForReads()
-        } catch {
-            details.stop(); await details.waitForReads()
-            throw error
-        }
-    }
-
-    @Test func detailActivationReusesTenSecondResultsButExplicitRequestsBypassThem() async throws {
-        let f = try await Fixture(template: .singleRepository); defer { f.remove() }
-        let record = try f.service.store.load(f.root)
-        let defaults = try #require(UserDefaults(suiteName: f.directory.lastPathComponent))
-        defer { defaults.removePersistentDomain(forName: f.directory.lastPathComponent) }
-        let clock = ActivationReadClock(), counts = ActivationReadCounts()
-        let details = GitBrowserModel(service: f.service, defaults: defaults,
-                                           now: { clock.now }, diagnostics: counts.diagnostics)
-        details.refresh(.repository("repo"), in: record)
-        await details.detailTask?.value
-        #expect(counts.count("detail.read") == 1)
-        clock.advance(9)
-        details.activate(.repository("repo"), in: record)
-        #expect(details.detailTask == nil && counts.count("detail.read") == 1)
-        clock.advance(1)
-        details.activate(.repository("repo"), in: record)
-        await details.detailTask?.value
-        #expect(counts.count("detail.read") == 2)
-        details.refresh(.repository("repo"), in: record, userInitiated: true)
-        await details.detailTask?.value
-        #expect(counts.count("detail.read") == 3)
-        clock.advance(120)
-        await Task.yield()
-        #expect(details.detailTask == nil && counts.count("detail.read") == 3)
-        details.stop(); await details.waitForReads()
-    }
-
-    @Test func sideActivationHasItsOwnFreshnessAndIdleDoesNotCreateRequests() async throws {
-        let f = try await Fixture(template: .singleRepository); defer { f.remove() }
-        let record = try f.service.store.load(f.root)
-        let defaults = try #require(UserDefaults(suiteName: f.directory.lastPathComponent))
-        defer { defaults.removePersistentDomain(forName: f.directory.lastPathComponent) }
-        let clock = ActivationReadClock(), counts = ActivationReadCounts()
-        let details = GitBrowserModel(service: f.service, defaults: defaults,
-                                           now: { clock.now }, diagnostics: counts.diagnostics)
-        let resource = Resource.repository("repo")
+  @Test(arguments: [false, true])
+  func selectionReusesTenSecondDetailsWithoutExtendingFreshness(_ preloaded: Bool) async throws {
+    let f = try await Fixture(template: .singleRepository)
+    defer { f.remove() }
+    try await f.prepareEmptyGroup("other")
+    let record = try f.service.store.load(f.root)
+    let resource = Resource.repository("repo")
+    let defaults = try #require(UserDefaults(suiteName: f.directory.lastPathComponent))
+    defer { defaults.removePersistentDomain(forName: f.directory.lastPathComponent) }
+    let clock = ActivationReadClock()
+    let counts = ActivationReadCounts()
+    let details = GitBrowserModel(
+      service: f.service, defaults: defaults,
+      now: { clock.now }, diagnostics: counts.diagnostics)
+    do {
+      if preloaded {
         details.setPreloadScope(in: record, including: [resource])
         details.drainPreload()
         await details.detailPreloadTask?.value
         details.drainPreload()
         await details.snapshotPreloadTask?.value
-        #expect(counts.count("sidebar.completed") == 1)
-        clock.advance(9)
-        details.activatePreload(in: record, including: [resource])
-        #expect(details.detailPreloadTask == nil)
-        clock.advance(1)
-        details.activatePreload(in: record, including: [resource])
-        await details.detailPreloadTask?.value
-        #expect(counts.count("sidebar.completed") == 2)
-        details.activate(resource, in: record)
-        await details.detailTask?.value
-        #expect(counts.count("detail.read") == 1)
-        details.refresh(nil, in: record)
-        details.activatePreload(in: record, including: [resource])
-        #expect(details.detailPreloadTask == nil)
-        clock.advance(120)
-        details.drainPreload()
-        #expect(details.detailPreloadTask == nil && counts.count("sidebar.completed") == 2)
-        details.stop(); await details.waitForReads()
-    }
-
-    @Test func failedActivationChecksHaveACooldown() async throws {
-        let f = try await Fixture(template: .emptyWorkspace); defer { f.remove() }
-        var record = try f.service.store.load(f.root)
-        record.groups["missing"] = WorktreeGroup(branchName: "missing")
-        try f.service.store.save(record)
-        let defaults = try #require(UserDefaults(suiteName: f.directory.lastPathComponent))
-        defer { defaults.removePersistentDomain(forName: f.directory.lastPathComponent) }
-        let clock = ActivationReadClock(), counts = ActivationReadCounts()
-        let details = GitBrowserModel(service: f.service, defaults: defaults,
-                                           now: { clock.now }, diagnostics: counts.diagnostics)
-        let resource = Resource.group("missing")
+        #expect(counts.count("detail.preload.completed") == 1)
+      } else {
         details.refresh(resource, in: record)
         await details.detailTask?.value
-        #expect(details.detail.summaryError != nil && counts.count("detail.read") == 1)
-        clock.advance(9)
-        details.activate(resource, in: record)
-        #expect(details.detailTask == nil)
-        clock.advance(1)
-        details.activate(resource, in: record)
-        await details.detailTask?.value
-        #expect(counts.count("detail.read") == 2)
-        _ = try await f.service.git.run(["worktree", "add", "-b", "missing", record.groupURL("missing").path], at: f.root)
-        details.activate(resource, in: record)
-        await details.detailTask?.value
-        #expect(details.detail.summary != nil && counts.count("detail.read") == 3)
-        details.stop(); await details.waitForReads()
-    }
+      }
+      details.refresh(.group("other"), in: record)
+      await details.detailTask?.value
+      let reads = counts.count("detail.read")
+      clock.now = clock.now.advanced(by: .milliseconds(9_999))
+      details.refresh(resource, in: record)
+      #expect(details.detailTask == nil && !details.snapshotLoading)
+      #expect(details.detail.summary != nil && details.detail.uniqueCommits != nil)
+      #expect(counts.count("detail.read") == reads && counts.count("detail.selection.hit") == 1)
 
-    @Test func activationJoinsAnInFlightRead() async throws {
-        let f = try await Fixture(template: .singleRepository); defer { f.remove() }
-        let record = try f.service.store.load(f.root)
-        let defaults = try #require(UserDefaults(suiteName: f.directory.lastPathComponent))
-        defer { defaults.removePersistentDomain(forName: f.directory.lastPathComponent) }
-        let gate = ActivationHistoryGate(), counts = ActivationReadCounts()
-        let details = GitBrowserModel(service: f.service, defaults: defaults, readCommits: { _, _, _ in
-            await gate.read()
-            return []
-        }, diagnostics: counts.diagnostics)
-        let resource = Resource.repository("repo")
-        details.refresh(resource, in: record)
-        do {
-            try await eventually { await gate.started }
-            details.activate(resource, in: record)
-            details.activate(resource, in: record)
-            await gate.release()
-            await details.detailTask?.value
-            #expect(counts.count("detail.read") == 1)
-            details.stop(); await details.waitForReads()
-        } catch {
-            await gate.release()
-            details.stop(); await details.waitForReads()
-            throw error
-        }
+      details.refresh(nil, in: record)
+      clock.now = clock.now.advanced(by: .milliseconds(1))
+      details.refresh(resource, in: record)
+      let expired = try #require(details.detailTask)
+      await expired.value
+      #expect(counts.count("detail.read") == reads + 1)
+      details.stop()
+      await details.waitForReads()
+    } catch {
+      details.stop()
+      await details.waitForReads()
+      throw error
     }
+  }
 
-    private func eventually(_ condition: () async -> Bool) async throws {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-        while await !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
-        try #require(await condition())
+  @Test func explicitRefreshAndInvalidationBypassSelectionCooldown() async throws {
+    let f = try await Fixture(template: .singleRepository)
+    defer { f.remove() }
+    let record = try f.service.store.load(f.root)
+    let resource = Resource.repository("repo")
+    let defaults = try #require(UserDefaults(suiteName: f.directory.lastPathComponent))
+    defer { defaults.removePersistentDomain(forName: f.directory.lastPathComponent) }
+    let clock = ActivationReadClock()
+    let counts = ActivationReadCounts()
+    let details = GitBrowserModel(
+      service: f.service, defaults: defaults,
+      now: { clock.now }, diagnostics: counts.diagnostics)
+    do {
+      details.refresh(resource, in: record)
+      await details.detailTask?.value
+      details.refresh(nil, in: record)
+      details.refresh(resource, in: record)
+      #expect(details.detailTask == nil && counts.count("detail.selection.hit") == 1)
+
+      try Data("tracked change".utf8).write(
+        to: record.repositoryURL("repo").appending(path: "README"))
+      #expect(!details.hasActiveReads && details.detail.changes?.isEmpty == true)
+      details.refresh(resource, in: record, userInitiated: true)
+      await details.detailTask?.value
+      #expect(counts.count("detail.read") == 2 && details.detail.changes?.map(\.path) == ["README"])
+      details.refresh(nil, in: record)
+      details.invalidate(resources: [resource])
+      details.refresh(resource, in: record)
+      let invalidated = try #require(details.detailTask)
+      await invalidated.value
+      #expect(counts.count("detail.read") == 3)
+      details.stop()
+      await details.waitForReads()
+    } catch {
+      details.stop()
+      await details.waitForReads()
+      throw error
     }
+  }
+
+  @Test func detailActivationReusesTenSecondResultsButExplicitRequestsBypassThem() async throws {
+    let f = try await Fixture(template: .singleRepository)
+    defer { f.remove() }
+    let record = try f.service.store.load(f.root)
+    let defaults = try #require(UserDefaults(suiteName: f.directory.lastPathComponent))
+    defer { defaults.removePersistentDomain(forName: f.directory.lastPathComponent) }
+    let clock = ActivationReadClock()
+    let counts = ActivationReadCounts()
+    let details = GitBrowserModel(
+      service: f.service, defaults: defaults,
+      now: { clock.now }, diagnostics: counts.diagnostics)
+    details.refresh(.repository("repo"), in: record)
+    await details.detailTask?.value
+    #expect(counts.count("detail.read") == 1)
+    clock.advance(9)
+    details.activate(.repository("repo"), in: record)
+    #expect(details.detailTask == nil && counts.count("detail.read") == 1)
+    clock.advance(1)
+    details.activate(.repository("repo"), in: record)
+    await details.detailTask?.value
+    #expect(counts.count("detail.read") == 2)
+    details.refresh(.repository("repo"), in: record, userInitiated: true)
+    await details.detailTask?.value
+    #expect(counts.count("detail.read") == 3)
+    clock.advance(120)
+    await Task.yield()
+    #expect(details.detailTask == nil && counts.count("detail.read") == 3)
+    details.stop()
+    await details.waitForReads()
+  }
+
+  @Test func sideActivationHasItsOwnFreshnessAndIdleDoesNotCreateRequests() async throws {
+    let f = try await Fixture(template: .singleRepository)
+    defer { f.remove() }
+    let record = try f.service.store.load(f.root)
+    let defaults = try #require(UserDefaults(suiteName: f.directory.lastPathComponent))
+    defer { defaults.removePersistentDomain(forName: f.directory.lastPathComponent) }
+    let clock = ActivationReadClock()
+    let counts = ActivationReadCounts()
+    let details = GitBrowserModel(
+      service: f.service, defaults: defaults,
+      now: { clock.now }, diagnostics: counts.diagnostics)
+    let resource = Resource.repository("repo")
+    details.setPreloadScope(in: record, including: [resource])
+    details.drainPreload()
+    await details.detailPreloadTask?.value
+    details.drainPreload()
+    await details.snapshotPreloadTask?.value
+    #expect(counts.count("sidebar.completed") == 1)
+    clock.advance(9)
+    details.activatePreload(in: record, including: [resource])
+    #expect(details.detailPreloadTask == nil)
+    clock.advance(1)
+    details.activatePreload(in: record, including: [resource])
+    await details.detailPreloadTask?.value
+    #expect(counts.count("sidebar.completed") == 2)
+    details.activate(resource, in: record)
+    await details.detailTask?.value
+    #expect(counts.count("detail.read") == 1)
+    details.refresh(nil, in: record)
+    details.activatePreload(in: record, including: [resource])
+    #expect(details.detailPreloadTask == nil)
+    clock.advance(120)
+    details.drainPreload()
+    #expect(details.detailPreloadTask == nil && counts.count("sidebar.completed") == 2)
+    details.stop()
+    await details.waitForReads()
+  }
+
+  @Test func failedActivationChecksHaveACooldown() async throws {
+    let f = try await Fixture(template: .emptyWorkspace)
+    defer { f.remove() }
+    var record = try f.service.store.load(f.root)
+    record.groups["missing"] = WorktreeGroup(branchName: "missing")
+    try f.service.store.save(record)
+    let defaults = try #require(UserDefaults(suiteName: f.directory.lastPathComponent))
+    defer { defaults.removePersistentDomain(forName: f.directory.lastPathComponent) }
+    let clock = ActivationReadClock()
+    let counts = ActivationReadCounts()
+    let details = GitBrowserModel(
+      service: f.service, defaults: defaults,
+      now: { clock.now }, diagnostics: counts.diagnostics)
+    let resource = Resource.group("missing")
+    details.refresh(resource, in: record)
+    await details.detailTask?.value
+    #expect(details.detail.summaryError != nil && counts.count("detail.read") == 1)
+    clock.advance(9)
+    details.activate(resource, in: record)
+    #expect(details.detailTask == nil)
+    clock.advance(1)
+    details.activate(resource, in: record)
+    await details.detailTask?.value
+    #expect(counts.count("detail.read") == 2)
+    _ = try await f.service.git.run(
+      ["worktree", "add", "-b", "missing", record.groupURL("missing").path], at: f.root)
+    details.activate(resource, in: record)
+    await details.detailTask?.value
+    #expect(details.detail.summary != nil && counts.count("detail.read") == 3)
+    details.stop()
+    await details.waitForReads()
+  }
+
+  @Test func activationJoinsAnInFlightRead() async throws {
+    let f = try await Fixture(template: .singleRepository)
+    defer { f.remove() }
+    let record = try f.service.store.load(f.root)
+    let defaults = try #require(UserDefaults(suiteName: f.directory.lastPathComponent))
+    defer { defaults.removePersistentDomain(forName: f.directory.lastPathComponent) }
+    let gate = ActivationHistoryGate()
+    let counts = ActivationReadCounts()
+    let details = GitBrowserModel(
+      service: f.service, defaults: defaults,
+      readCommits: { _, _, _ in
+        await gate.read()
+        return []
+      }, diagnostics: counts.diagnostics)
+    let resource = Resource.repository("repo")
+    details.refresh(resource, in: record)
+    do {
+      try await eventually { await gate.started }
+      details.activate(resource, in: record)
+      details.activate(resource, in: record)
+      await gate.release()
+      await details.detailTask?.value
+      #expect(counts.count("detail.read") == 1)
+      details.stop()
+      await details.waitForReads()
+    } catch {
+      await gate.release()
+      details.stop()
+      await details.waitForReads()
+      throw error
+    }
+  }
+
+  private func eventually(_ condition: () async -> Bool) async throws {
+    let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+    while await !condition(), ContinuousClock.now < deadline {
+      try await Task.sleep(for: .milliseconds(10))
+    }
+    try #require(await condition())
+  }
 }
 
 @MainActor private final class ActivationReadClock {
-    var now = ContinuousClock.now
-    func advance(_ seconds: Int) { now = now.advanced(by: .seconds(seconds)) }
+  var now = ContinuousClock.now
+  func advance(_ seconds: Int) { now = now.advanced(by: .seconds(seconds)) }
 }
 
 private final class ActivationReadCounts: @unchecked Sendable {
-    private let lock = NSLock()
-    private var counts: [String: Int] = [:]
-    var diagnostics: RepositoryReadDiagnostics { .init { [self] event in lock.withLock { counts[event.name, default: 0] += event.count } } }
-    func count(_ name: String) -> Int { lock.withLock { counts[name, default: 0] } }
+  private let lock = NSLock()
+  private var counts: [String: Int] = [:]
+  var diagnostics: RepositoryReadDiagnostics {
+    .init { [self] event in lock.withLock { counts[event.name, default: 0] += event.count } }
+  }
+  func count(_ name: String) -> Int { lock.withLock { counts[name, default: 0] } }
 }
 
 private actor ActivationHistoryGate {
-    private var continuations: [CheckedContinuation<Void, Never>] = []
-    private var released = false
-    var started: Bool { !continuations.isEmpty }
-    func read() async {
-        if released { return }
-        await withCheckedContinuation { continuations.append($0) }
-    }
-    func release() { released = true; for continuation in continuations { continuation.resume() }; continuations = [] }
+  private var continuations: [CheckedContinuation<Void, Never>] = []
+  private var released = false
+  var started: Bool { !continuations.isEmpty }
+  func read() async {
+    if released { return }
+    await withCheckedContinuation { continuations.append($0) }
+  }
+  func release() {
+    released = true
+    for continuation in continuations { continuation.resume() }
+    continuations = []
+  }
 }

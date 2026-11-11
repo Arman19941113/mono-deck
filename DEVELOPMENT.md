@@ -48,6 +48,12 @@ Run these commands from the repository root with a full Xcode installation, incl
 - Append `-- --mock linked-worktree-selected` to `task debug`, `task logs`, or `task telemetry` to use the mock scenario. Enter `run` in LLDB to launch. Logs are scoped to the current instance's PID. Once collection starts, Ctrl-C stops only the log stream. For full build output, pass `--verbose` after the Task argument separator, as in `task debug -- --mock linked-worktree-selected --verbose`.
 - Mock launches reuse development build artifacts by default. Set `MONO_DECK_DERIVED_DATA_PATH` to a dedicated path when you need separate artifacts. Use `task --dry --verbose <task>` to inspect the command. See [Taskfile.yml](Taskfile.yml) and [build_and_run.sh](script/build_and_run.sh) for tasks and arguments.
 
+## Formatting Swift code
+
+Use `task format` to format all Swift source directories, or `task format -- <path>` to format a specific file or directory. Both use the default `swift-format` settings from the selected Xcode toolchain.
+
+Run `task format:check` to check Swift files in `MonoDeck`, `MonoDeckCore`, `MonoDeckCLI`, `MonoDeckTests`, and `script`. On pull requests, `build` runs this check before packaging. The `Test` job runs the test suite in parallel.
+
 ## Running and diagnosing tests
 
 See [Verification and delivery](AGENTS.md#verification-and-delivery) for test scope and isolation. Reuse [Fixture](MonoDeckTests/MonoDeckTests.swift) for test setup.

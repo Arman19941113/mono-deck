@@ -1,168 +1,209 @@
-import SwiftUI
 import AppKit
 import MonoDeckCore
 import Observation
+import SwiftUI
 
 @MainActor @Observable final class AppDelegate: NSObject, NSApplicationDelegate {
-    weak var model: AppModel?
-    @ObservationIgnored private(set) weak var mainWindow: NSWindow?
-    @ObservationIgnored weak var settingsWindow: NSWindow?
-    @ObservationIgnored var startupSetupAnchor: AuxiliaryWindowPlacement.Anchor?
-    private(set) var mainWindowIsOpen = false
-    private(set) var startupTask: Task<Void, Never>?
-    private(set) var terminationTask: Task<Void, Never>?
-    private var terminationPrepared = false
-    private let terminate: (NSApplication) -> Void
-    var reopenWindow: (() -> Void)?
+  weak var model: AppModel?
+  @ObservationIgnored private(set) weak var mainWindow: NSWindow?
+  @ObservationIgnored weak var settingsWindow: NSWindow?
+  @ObservationIgnored var startupSetupAnchor: AuxiliaryWindowPlacement.Anchor?
+  private(set) var mainWindowIsOpen = false
+  private(set) var startupTask: Task<Void, Never>?
+  private(set) var terminationTask: Task<Void, Never>?
+  private var terminationPrepared = false
+  private let terminate: (NSApplication) -> Void
+  var reopenWindow: (() -> Void)?
 
-    override convenience init() {
-        self.init(terminate: { $0.terminate(nil) })
+  override convenience init() {
+    self.init(terminate: { $0.terminate(nil) })
+  }
+
+  init(terminate: @escaping (NSApplication) -> Void) {
+    self.terminate = terminate
+    super.init()
+  }
+
+  func start(
+    model: AppModel, onReady: @escaping @MainActor () -> Void,
+    onFinished: @escaping @MainActor (Bool) async -> Void
+  ) {
+    guard startupTask == nil, !model.started else { return }
+    self.model = model
+    model.globalShortcut.start { [weak self] in self?.toggleVisibility() }
+    continueStartup {
+      let needsCLISetup = await model.start(onReady: onReady)
+      guard !Task.isCancelled else { return }
+      await onFinished(needsCLISetup)
     }
+  }
 
-    init(terminate: @escaping (NSApplication) -> Void) {
-        self.terminate = terminate
-        super.init()
+  func continueStartup(_ action: @escaping @MainActor () async -> Void) {
+    guard startupTask == nil else { return }
+    startupTask = Task {
+      defer { startupTask = nil }
+      await action()
     }
-
-    func start(model: AppModel, onReady: @escaping @MainActor () -> Void, onFinished: @escaping @MainActor (Bool) async -> Void) {
-        guard startupTask == nil, !model.started else { return }
-        self.model = model
-        model.globalShortcut.start { [weak self] in self?.toggleVisibility() }
-        continueStartup {
-            let needsCLISetup = await model.start(onReady: onReady)
-            guard !Task.isCancelled else { return }
-            await onFinished(needsCLISetup)
+  }
+  func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool
+  {
+    if !flag { reopenWindow?() }
+    return false
+  }
+  func applicationWillTerminate(_ notification: Notification) {
+    saveMainWindowFrame()
+    if let mainWindow {
+      NotificationCenter.default.removeObserver(self, name: nil, object: mainWindow)
+    }
+    model?.updates.cancel()
+    model?.globalShortcut.stop()
+    #if DEBUG
+      if model?.relaunch.restartPending != true { model?.mockWorkspace?.remove() }
+    #endif
+  }
+  func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+    if terminationTask != nil { return .terminateCancel }
+    model?.cancelPendingActions()
+    if let model, model.busy {
+      if model.updates.restartPending || model.relaunch.restartPending {
+        model.presentation.quitPending = true
+      }
+      if model.workspace.isReloading && !model.operations.canCancel {
+        model.presentation.quitPending = true
+        return .terminateCancel
+      }
+      guard model.operations.canCancel || model.cancelling else { return .terminateCancel }
+      model.presentation.quitPending = true
+      model.cancel()
+      return .terminateCancel
+    }
+    if model?.presentation.result != nil {
+      model?.presentation.quitPending = true
+      return .terminateCancel
+    }
+    if terminationPrepared { return .terminateNow }
+    if startupTask != nil || model?.hasPendingActions == true
+      || model?.workspace.needsReadTermination == true
+      || model?.updates.needsTerminationPreparation == true
+      || model?.relaunch.restartPending == true
+    {
+      let model = model
+      model?.presentation.quitPending = true
+      let startupTask = startupTask
+      let relaunchRequested = model?.relaunch.restartPending == true
+      startupTask?.cancel()
+      terminationTask = Task {
+        await startupTask?.value
+        await model?.waitForPendingActions()
+        await model?.workspace.stopReads()
+        var canTerminate = await model?.updates.prepareToTerminate() ?? true
+        if canTerminate { canTerminate = await model?.relaunch.prepareToTerminate() ?? true }
+        terminationTask = nil
+        guard canTerminate, !relaunchRequested || model?.relaunch.restartPending == true else {
+          model?.resumeAfterFailedQuit()
+          return
         }
+        terminationPrepared = true
+        defer { terminationPrepared = false }
+        terminate(sender)
+      }
+      // A deferred AppKit quit runs a modal loop that can starve these MainActor tasks.
+      return .terminateCancel
     }
+    return .terminateNow
+  }
 
-    func continueStartup(_ action: @escaping @MainActor () async -> Void) {
-        guard startupTask == nil else { return }
-        startupTask = Task {
-            defer { startupTask = nil }
-            await action()
-        }
+  func observeMainWindow(_ window: NSWindow) {
+    guard mainWindow !== window else {
+      mainWindowVisibilityChanged()
+      return
     }
-    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag { reopenWindow?() }
-        return false
+    if let mainWindow {
+      NotificationCenter.default.removeObserver(self, name: nil, object: mainWindow)
     }
-    func applicationWillTerminate(_ notification: Notification) {
-        saveMainWindowFrame()
-        if let mainWindow { NotificationCenter.default.removeObserver(self, name: nil, object: mainWindow) }
-        model?.updates.cancel()
-        model?.globalShortcut.stop()
-        #if DEBUG
-        if model?.relaunch.restartPending != true { model?.mockWorkspace?.remove() }
-        #endif
-    }
-    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        if terminationTask != nil { return .terminateCancel }
-        model?.cancelPendingActions()
-        if let model, model.busy {
-            if model.updates.restartPending || model.relaunch.restartPending { model.presentation.quitPending = true }
-            if model.workspace.isReloading && !model.operations.canCancel {
-                model.presentation.quitPending = true
-                return .terminateCancel
-            }
-            guard model.operations.canCancel || model.cancelling else { return .terminateCancel }
-            model.presentation.quitPending = true; model.cancel()
-            return .terminateCancel
-        }
-        if model?.presentation.result != nil { model?.presentation.quitPending = true; return .terminateCancel }
-        if terminationPrepared { return .terminateNow }
-        if startupTask != nil || model?.hasPendingActions == true || model?.workspace.needsReadTermination == true || model?.updates.needsTerminationPreparation == true || model?.relaunch.restartPending == true {
-            let model = model
-            model?.presentation.quitPending = true
-            let startupTask = startupTask
-            let relaunchRequested = model?.relaunch.restartPending == true
-            startupTask?.cancel()
-            terminationTask = Task {
-                await startupTask?.value
-                await model?.waitForPendingActions()
-                await model?.workspace.stopReads()
-                var canTerminate = await model?.updates.prepareToTerminate() ?? true
-                if canTerminate { canTerminate = await model?.relaunch.prepareToTerminate() ?? true }
-                terminationTask = nil
-                guard canTerminate, !relaunchRequested || model?.relaunch.restartPending == true else {
-                    model?.resumeAfterFailedQuit()
-                    return
-                }
-                terminationPrepared = true
-                defer { terminationPrepared = false }
-                terminate(sender)
-            }
-            // A deferred AppKit quit runs a modal loop that can starve these MainActor tasks.
-            return .terminateCancel
-        }
-        return .terminateNow
-    }
+    mainWindow = window
+    mainWindowIsOpen = window.isVisible || window.isMiniaturized
+    NotificationCenter.default.addObserver(
+      self, selector: #selector(mainWindowDidBecomeKey), name: NSWindow.didBecomeKeyNotification,
+      object: window)
+    NotificationCenter.default.addObserver(
+      self, selector: #selector(mainWindowWillClose), name: NSWindow.willCloseNotification,
+      object: window)
+    NotificationCenter.default.addObserver(
+      self, selector: #selector(mainWindowVisibilityChanged),
+      name: NSWindow.didChangeOcclusionStateNotification, object: window)
+    NotificationCenter.default.addObserver(
+      self, selector: #selector(saveMainWindowFrame), name: NSWindow.didEndLiveResizeNotification,
+      object: window)
+    NotificationCenter.default.addObserver(
+      self, selector: #selector(saveMainWindowFrame),
+      name: NSWindow.willEnterFullScreenNotification, object: window)
+  }
 
-    func observeMainWindow(_ window: NSWindow) {
-        guard mainWindow !== window else {
-            mainWindowVisibilityChanged()
-            return
-        }
-        if let mainWindow { NotificationCenter.default.removeObserver(self, name: nil, object: mainWindow) }
-        mainWindow = window
-        mainWindowIsOpen = window.isVisible || window.isMiniaturized
-        NotificationCenter.default.addObserver(self, selector: #selector(mainWindowDidBecomeKey), name: NSWindow.didBecomeKeyNotification, object: window)
-        NotificationCenter.default.addObserver(self, selector: #selector(mainWindowWillClose), name: NSWindow.willCloseNotification, object: window)
-        NotificationCenter.default.addObserver(self, selector: #selector(mainWindowVisibilityChanged), name: NSWindow.didChangeOcclusionStateNotification, object: window)
-        NotificationCenter.default.addObserver(self, selector: #selector(saveMainWindowFrame), name: NSWindow.didEndLiveResizeNotification, object: window)
-        NotificationCenter.default.addObserver(self, selector: #selector(saveMainWindowFrame), name: NSWindow.willEnterFullScreenNotification, object: window)
-    }
+  func returnToMainWindow() {
+    guard mainWindowIsOpen, let mainWindow else { return }
+    NSApp.unhide(nil)
+    if mainWindow.isMiniaturized { mainWindow.deminiaturize(nil) }
+    mainWindow.makeKeyAndOrderFront(nil)
+    mainWindow.attachedSheet?.makeKeyAndOrderFront(nil)
+  }
 
-    func returnToMainWindow() {
-        guard mainWindowIsOpen, let mainWindow else { return }
-        NSApp.unhide(nil)
-        if mainWindow.isMiniaturized { mainWindow.deminiaturize(nil) }
-        mainWindow.makeKeyAndOrderFront(nil)
-        mainWindow.attachedSheet?.makeKeyAndOrderFront(nil)
-    }
+  var mainWindowAnchor: AuxiliaryWindowPlacement.Anchor? {
+    guard let mainWindow, mainWindow.isVisible, !mainWindow.isMiniaturized,
+      let screen = mainWindow.screen
+    else { return nil }
+    return AuxiliaryWindowPlacement.Anchor(
+      frame: mainWindow.frame, visibleFrame: screen.visibleFrame)
+  }
 
-    var mainWindowAnchor: AuxiliaryWindowPlacement.Anchor? {
-        guard let mainWindow, mainWindow.isVisible, !mainWindow.isMiniaturized,
-              let screen = mainWindow.screen else { return nil }
-        return AuxiliaryWindowPlacement.Anchor(frame: mainWindow.frame, visibleFrame: screen.visibleFrame)
+  func showAboutPanel() {
+    let anchor = mainWindowAnchor
+    let visibleWindows = Set(NSApp.windows.filter(\.isVisible))
+    NSApp.orderFrontStandardAboutPanel(nil)
+    // AppKit shows the standard panel without returning its window.
+    if let anchor,
+      let panel = NSApp.windows.first(where: { $0.isVisible && !visibleWindows.contains($0) })
+    {
+      anchor.center(panel)
     }
+  }
 
-    func showAboutPanel() {
-        let anchor = mainWindowAnchor
-        let visibleWindows = Set(NSApp.windows.filter(\.isVisible))
-        NSApp.orderFrontStandardAboutPanel(nil)
-        // AppKit shows the standard panel without returning its window.
-        if let anchor, let panel = NSApp.windows.first(where: { $0.isVisible && !visibleWindows.contains($0) }) {
-            anchor.center(panel)
-        }
+  @objc private func mainWindowDidBecomeKey() { mainWindowIsOpen = true }
+  @objc private func mainWindowVisibilityChanged() {
+    if mainWindow?.isVisible == true || mainWindow?.isMiniaturized == true {
+      mainWindowIsOpen = true
     }
+  }
+  @objc private func mainWindowWillClose() {
+    saveMainWindowFrame()
+    mainWindowIsOpen = false
+  }
 
-    @objc private func mainWindowDidBecomeKey() { mainWindowIsOpen = true }
-    @objc private func mainWindowVisibilityChanged() {
-        if mainWindow?.isVisible == true || mainWindow?.isMiniaturized == true { mainWindowIsOpen = true }
-    }
-    @objc private func mainWindowWillClose() {
-        saveMainWindowFrame()
-        mainWindowIsOpen = false
-    }
+  @objc private func saveMainWindowFrame() {
+    guard let mainWindow, let model, !mainWindow.styleMask.contains(.fullScreen) else { return }
+    MainWindowPlacement.save(mainWindow, defaults: model.defaults)
+  }
 
-    @objc private func saveMainWindowFrame() {
-        guard let mainWindow, let model, !mainWindow.styleMask.contains(.fullScreen) else { return }
-        MainWindowPlacement.save(mainWindow, defaults: model.defaults)
+  private func toggleVisibility() {
+    if NSApp.isActive, !NSApp.isHidden,
+      NSApp.orderedWindows.contains(where: {
+        $0.isVisible && !$0.isMiniaturized && $0.canBecomeMain
+      })
+    {
+      NSApp.hide(nil)
+      return
     }
-
-    private func toggleVisibility() {
-        if NSApp.isActive, !NSApp.isHidden, NSApp.orderedWindows.contains(where: { $0.isVisible && !$0.isMiniaturized && $0.canBecomeMain }) {
-            NSApp.hide(nil)
-            return
-        }
-        NSApp.unhide(nil)
-        let window = NSApp.orderedWindows.first(where: { $0.canBecomeMain && $0.isVisible && !$0.isMiniaturized })
-            ?? NSApp.windows.first(where: { $0.canBecomeMain && $0.isMiniaturized })
-        if let window {
-            if window.isMiniaturized { window.deminiaturize(nil) }
-            window.makeKeyAndOrderFront(nil)
-            window.attachedSheet?.makeKeyAndOrderFront(nil)
-        } else { reopenWindow?() }
-        NSApp.activate(ignoringOtherApps: true)
+    NSApp.unhide(nil)
+    let window =
+      NSApp.orderedWindows.first(where: { $0.canBecomeMain && $0.isVisible && !$0.isMiniaturized })
+      ?? NSApp.windows.first(where: { $0.canBecomeMain && $0.isMiniaturized })
+    if let window {
+      if window.isMiniaturized { window.deminiaturize(nil) }
+      window.makeKeyAndOrderFront(nil)
+      window.attachedSheet?.makeKeyAndOrderFront(nil)
+    } else {
+      reopenWindow?()
     }
+    NSApp.activate(ignoringOtherApps: true)
+  }
 }
