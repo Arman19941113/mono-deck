@@ -133,10 +133,10 @@ struct SettingsView: View {
             choosingAgain = false
             chooseWorkspace()
           }
-        }
-      ) {
-        operationSheetContents
-      }
+        },
+        content: {
+          operationSheetContents
+        })
   }
   private var languageSelection: Binding<AppLanguage> {
     Binding(

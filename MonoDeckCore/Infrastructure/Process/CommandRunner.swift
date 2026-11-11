@@ -123,8 +123,8 @@ public struct CommandRunner: Sendable {
     let argv = ([executable] + arguments).map { strdup($0) } + [nil]
     let envp = environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
     defer {
-      argv.forEach { free($0) }
-      envp.forEach { free($0) }
+      for pointer in argv { free(pointer) }
+      for pointer in envp { free(pointer) }
     }
     var pid: pid_t = 0
     let spawnError = argv.withUnsafeBufferPointer { a in

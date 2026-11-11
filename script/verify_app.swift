@@ -31,7 +31,9 @@ func verifyApplication() -> Int32 {
     source.resume()
     return source
   }
-  defer { signals.forEach { $0.cancel() } }
+  defer {
+    for source in signals { source.cancel() }
+  }
 
   var result: Result<NSRunningApplication, Error>?
   NSWorkspace.shared.openApplication(at: applicationURL, configuration: configuration) {
