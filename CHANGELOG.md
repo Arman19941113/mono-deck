@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.1.1] - 2026-11-11
+
+### Fixed
+
+- Center Settings, Setup, Software Update, and About over the main window when it is visible.
+- Use consistent workspace dividers and keep the toolbar background visible when moving the window between displays.
+- Show paths and statuses in consistent columns in deletion previews and update results. Press Esc to close a details popover while keeping its dialog open.
+- Show a concise message when Git Browser cannot read local changes, with diagnostic output available under Details.
+
 ## [2.1.0] - 2026-11-10
 
 ### Added
