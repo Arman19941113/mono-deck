@@ -54,6 +54,11 @@ struct ContentView: View {
           }
         } else if model.workspace.record != nil, model.workspace.maintenanceState == .failed {
           workspaceReadOnlyStatus
+        } else if let completion = model.presentation.updateCompletion {
+          InlineStatusLabel(
+            title: completion, symbol: "checkmark.circle", iconColor: .green, font: .body
+          )
+          .onAppear { AccessibilityNotification.Announcement(completion).post() }
         } else {
           Text(model.workspace.record?.rootURL.lastPathComponent ?? "MonoDeck").font(
             .system(size: 13, weight: .semibold))

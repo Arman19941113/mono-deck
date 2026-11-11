@@ -107,7 +107,10 @@ final class AppModel {
       presentation: presentation, cache: cache, recordMonitor: recordMonitor, now: now,
       waitForRecordDebounce: waitForRecordDebounce, diagnostics: diagnostics)
     self.workspace = workspace
-    operations.onBusyChange = { [weak workspace] busy in workspace?.operationsChanged(busy) }
+    operations.onBusyChange = { [weak workspace, weak presentation] busy in
+      if busy { presentation?.clearUpdateCompletion() }
+      workspace?.operationsChanged(busy)
+    }
     let management = ManagementModel(
       service: service, session: workspace, operations: operations, presentation: presentation)
     self.management = management
@@ -116,6 +119,7 @@ final class AppModel {
       self.management.contextChanged(rootChanged: rootChanged)
       if rootChanged {
         self.cancelToolLaunches()
+        self.presentation.clearUpdateCompletion()
         self.presentation.discardActionMessages(outside: self.workspace.contextID)
       }
     }

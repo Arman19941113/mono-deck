@@ -53,8 +53,6 @@ struct ResultView: View {
               RepositoryUpdateResultsView(
                 text: text, items: items, workspace: result.workspace,
                 isWorktreeUpdate: isWorktreeUpdate)
-            } else if isWorktreeUpdate, result.status == .success {
-              Text(text.string(.uiNoWorktreesToUpdate)).foregroundStyle(DesignStyle.secondary)
             } else {
               ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                 itemContents(item, count: items.count)

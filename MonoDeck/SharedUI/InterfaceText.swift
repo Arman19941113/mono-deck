@@ -76,7 +76,7 @@ struct InterfaceText {
     }
     if result.command == "repo.update" {
       return result.items.filter {
-        $0.status == .failed || ($0.status == .success && $0.data?["disposition"] == "updated")
+        $0.status != .success || $0.hasWarning || $0.data?["disposition"] != "up-to-date"
       }
     }
     guard result.status != .success || result.hasWarnings else { return result.items }

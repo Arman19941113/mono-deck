@@ -36,6 +36,52 @@ import Testing
     #expect(text.resultTitle(retained) != text.resultTitle(failed))
   }
 
+  @Test(arguments: ["repo.update", "worktree.update"])
+  func updatesOnlyUseToolbarCompletionWhenThereIsNothingToReport(_ command: String) async throws {
+    try await withModel { model in
+      let worktree = command == "worktree.update"
+      let resource: Resource = worktree ? .group("feature") : .repository("repo")
+      var current = ItemResult(.repository("current"))
+      current.data = ["disposition": "up-to-date"]
+      let unchanged = worktree ? [] : [current]
+      model.management.run { _, root, _ in
+        .init(command: command, workspace: root.path, items: unchanged)
+      }
+      await (try #require(model.operation)).value
+      let completion = model.text.string(
+        worktree ? .uiWorktreesNeedNoUpdate : .uiRepositoriesNeedNoUpdate)
+      #expect(model.presentation.updateCompletion == completion)
+      #expect(model.presentation.result == nil && !model.busy)
+
+      for status in [OperationStatus.success, .skipped, .failed, .cancelled] {
+        var item = ItemResult(resource, status: status)
+        if status == .success { item.data = ["disposition": "updated"] }
+        let items = unchanged + [item]
+        model.management.run { _, root, _ in
+          var result = OperationResult(command: command, workspace: root.path, items: items)
+          result.summarize(cancelled: status == .cancelled)
+          return result
+        }
+        #expect(model.presentation.updateCompletion == nil)
+        await (try #require(model.operation)).value
+        let result = try #require(model.presentation.result)
+        let displayed = model.text.resultDisplayItems(result)
+        #expect(displayed.map(\.resource) == [resource])
+        #expect(displayed.first?.status == status)
+        model.presentation.dismissResult()
+      }
+
+      model.management.run { _, root, _ in
+        .init(
+          command: command, workspace: root.path, status: .failed,
+          error: MonoDeckError("workspace-record-missing", "Workspace record missing"))
+      }
+      await (try #require(model.operation)).value
+      #expect(model.presentation.result?.reasonCode == "workspace-record-missing")
+      #expect(model.presentation.updateCompletion == nil)
+    }
+  }
+
   @Test func repositoryAdditionFailureKeepsFormAndClearsDetailsWithTheError() async throws {
     try await withModel { model in
       let record = model.workspace.record

@@ -48,11 +48,7 @@ xattr -dr com.apple.quarantine /Applications/MonoDeck.app
 4. Select a group or a member, then use the toolbar to open it in an installed agent, editor, terminal, or Git tool. Develop, commit, and merge in the external tool.
 5. Use Git Browser to inspect local changes, unique commits, and behind commits. Comparisons use the locally recorded remote default branch as their base.
 
-To refresh the remote default branch before creating a group, use **Update Repositories**. It fetches the branch recorded by each main repository's local `origin/HEAD` and attempts a fast-forward-only merge. It skips repositories without a clean checkout of the corresponding local branch.
-
-Use **Update Worktrees** in the `worktrees` section to fast-forward the current branches of registered group roots and members using local Git data. Members use their repository's local `origin/HEAD`. Group roots use the workspace repository's local `origin/HEAD`, falling back to the branch checked out at the workspace root only when that reference is absent.
-
-MonoDeck skips worktrees with an unavailable base, a detached HEAD, uncommitted changes, an ongoing Git operation, or a diverged branch. The results show updates, skips, failures, and items left unfinished after cancellation. Eligible worktrees that already contain the base commit are omitted. Cancellation keeps completed updates. Click a status for details.
+Click the update icon in the `repositories` section to refresh the remote default branches. MonoDeck fetches the branch recorded by each main repository's local `origin/HEAD` and attempts a fast-forward-only merge. It skips repositories without a clean checkout of the corresponding local branch. Click the update icon in the `worktrees` section to fast-forward the current branches of registered group roots and members using local Git data. Members use their repository's local `origin/HEAD` as the base. Group roots use the workspace repository's local `origin/HEAD`, falling back to the branch checked out at the workspace root only when that reference is absent. MonoDeck skips worktrees with an unavailable base, a detached HEAD, uncommitted changes, an ongoing Git operation, or a diverged branch. Cancellation keeps completed updates.
 
 ![Worktree update results with updated and skipped items organized by group](./.github/assets/3-worktree-update-results.png)
 

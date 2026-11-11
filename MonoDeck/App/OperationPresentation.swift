@@ -15,6 +15,8 @@ final class OperationPresentation {
   var messageTitle: String?
   var messageHost = ResultHost.main
   var quitPending = false
+  private(set) var updateCompletion: String?
+  @ObservationIgnored private var updateCompletionTask: Task<Void, Never>?
   private(set) var actionMessages: [ActionMessage] = []
   private var presentedActionMessage: ActionMessage?
   var text: InterfaceText { preferences.text }
@@ -33,6 +35,33 @@ final class OperationPresentation {
     result = nil
     resultHost = .main
     if quitPending { terminate() }
+  }
+
+  func presentUpdateResult(_ outcome: OperationResult, noChangesMessage: LocalizedStringResource) {
+    resultHost = .main
+    guard outcome.status == .success, outcome.message == nil,
+      text.resultDisplayItems(outcome).isEmpty
+    else {
+      result = outcome
+      return
+    }
+    result = nil
+    guard !quitPending else { return }
+    clearUpdateCompletion()
+    updateCompletion = text.string(noChangesMessage)
+    updateCompletionTask = Task { [weak self] in
+      do {
+        try await Task.sleep(for: .seconds(3))
+        try Task.checkCancellation()
+      } catch { return }
+      self?.clearUpdateCompletion()
+    }
+  }
+
+  func clearUpdateCompletion() {
+    updateCompletionTask?.cancel()
+    updateCompletionTask = nil
+    updateCompletion = nil
   }
 
   func presentMaintenanceFailure(_ result: OperationResult) {

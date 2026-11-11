@@ -8188,6 +8188,23 @@
         }
       }
     },
+    "ui.repositoriesNeedNoUpdate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No repository updates needed"
+          }
+        },
+        "zh-Hans-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主仓库无需更新"
+          }
+        }
+      }
+    },
     "ui.repository": {
       "extractionState": "manual",
       "localizations": {
@@ -9540,6 +9557,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "工作区只读"
+          }
+        }
+      }
+    },
+    "ui.worktreesNeedNoUpdate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No worktree updates needed"
+          }
+        },
+        "zh-Hans-CN": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作树无需更新"
           }
         }
       }

@@ -237,7 +237,14 @@ final class ManagementModel {
         }
       }
       let outcome = await body(service, root, report)
-      if outcome.command == "worktree.update", session.contextID != contextID {
+      guard operations.isCurrent(operationID) else { return }
+      let noChangesMessage: LocalizedStringResource? =
+        switch outcome.command {
+        case "repo.update": .uiRepositoriesNeedNoUpdate
+        case "worktree.update": .uiWorktreesNeedNoUpdate
+        default: nil
+        }
+      if noChangesMessage != nil, session.contextID != contextID {
         operations.finish(operationID)
         return
       }
@@ -261,11 +268,8 @@ final class ManagementModel {
       session.invalidateResources(after: outcome)
       pendingEdit = nil
       deletion = []
-      if outcome.command == "worktree.update" {
-        presentation.resultHost = .main
-        presentation.result = outcome
-      } else if outcome.command == "repo.update" {
-        presentation.result = text.resultDisplayItems(outcome).isEmpty ? nil : outcome
+      if let noChangesMessage {
+        presentation.presentUpdateResult(outcome, noChangesMessage: noChangesMessage)
       } else if outcome.status == .success && !presentation.quitPending {
         presentation.result =
           outcome.hasWarnings || outcome.command == "workspace.configuration.import" ? outcome : nil
