@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.1.2] - 2026-11-12
+
+### Fixed
+
+- Show repository and worktree update results in the same table layout. Click a status for details. When nothing needs updating, show a brief confirmation in the toolbar.
+
+### Changed
+
+- Use consistent terms for repositories, worktree groups, and task worktrees across the app, CLI help, and bundled workflow guide. Clarify which worktrees and branches are removed when editing or deleting a group or repository.
+
 ## [2.1.1] - 2026-11-11
 
 ### Fixed
