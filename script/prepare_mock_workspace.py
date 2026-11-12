@@ -123,7 +123,14 @@ def generate(directory, jobs):
   skill = Path(__file__).resolve().parent.parent / "MonoDeck/Resources/mono-deck-workflow"
   shutil.copytree(skill, root / ".agents/skills/mono-deck-workflow")
   commit(root, "chore: initialize MonoDeck workspace")
-  write(root / "README.md", "# MonoDeck sample workspace\n\nThis Debug workspace is temporary. It is deleted when MonoDeck quits.\n")
+  write(root / "README.md",
+        "# MonoDeck sample workspace\n\n"
+        "This temporary Debug workspace survives an in-app restart. "
+        "MonoDeck attempts to remove it when the app quits normally.\n\n"
+        "If the mock session directory remains, confirm that the instance has exited. "
+        "Then run the following command from the MonoDeck source repository, replacing "
+        "`<temporary-directory>` with the full path to the directory containing `example-workspace`.\n\n"
+        "```bash\ntask mock:cleanup DIRECTORY=\"<temporary-directory>\"\n```\n")
   commit(root, "docs: describe sample workspace")
   for name in REPOSITORIES:
     source = directory / "sources" / name

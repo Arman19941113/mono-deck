@@ -2,13 +2,13 @@
 
 **English** | [简体中文](README_CN.md)
 
-MonoDeck is a native macOS app that helps developers manage multiple repositories in one workspace, organize cross-repository tasks, and build AI workflows tailored to their work.
+MonoDeck is a native macOS app for managing multiple repositories in one workspace, coordinating tasks across them, and building AI workflows tailored to your projects.
 
 ## Features
 
 - Add and update repositories in batches. Create, edit, and clean up worktree groups.
-- Inspect local changes, unique commits, and behind commits. Open a group or member directory in an external tool.
-- Let agents manage repositories and groups through the `mono-deck` CLI and the `mono-deck-workflow` skill.
+- Review local changes and see which commits are unique to a worktree or missing from it. Open a group or member directory in an external tool.
+- AI agents can manage repositories and groups using the `mono-deck` CLI and the `mono-deck-workflow` skill.
 
 ## Workspace structure
 
@@ -25,69 +25,67 @@ example-workspace/               # Workspace
         └── storefront-web/      # Task member worktree
 ```
 
-The workspace root is the main worktree of the workspace repository, which stores shared prompts, skills, and documentation. Each group root is a linked worktree of that repository. Each member repository has its main worktree under `repositories/`, and its task member worktrees are linked worktrees of that same member repository.
+Shared prompts, skills, and project documentation live at the workspace root, which is the workspace repository's main worktree. Each group root is a linked worktree of that repository. Each member repository has its own main worktree under `repositories/`. The worktrees inside each task group are linked worktrees of their respective member repositories.
 
 ![MonoDeck workspace with a task worktree group, local changes, and unique commits](./.github/assets/1-workspace-overview.png)
 
-## Getting started
+## Download and install
 
 MonoDeck requires an Apple Silicon Mac running macOS 26.5 or later. Download the DMG from [Releases](https://github.com/qimaotech/mono-deck/releases) and drag `MonoDeck.app` into Applications.
 
-The `MonoDeck.app` inside the DMG is signed ad hoc and ships without Apple notarization. If macOS quarantine prevents the app from opening, verify the download source before running this command and opening the app again.
+The app in the DMG has an ad hoc signature and ships without Apple notarization. If macOS blocks the app because of its quarantine attribute, make sure you trust the download source. You can then run the following command and try opening MonoDeck again.
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/MonoDeck.app
 ```
 
-1. Launch MonoDeck, then follow Setup to install the CLI and select a workspace directory. For your first workspace, you can use a dedicated empty directory.
-2. Add repositories by URL or use the **Import** menu in the **Add Repository** sheet to scan local repositories. Both methods clone from the remote using your local Git credentials. Uncommitted changes in local repositories stay in their original directories.
-3. Choose **Create Worktree Group** and select the repositories for the task. A group name must be a single directory component that is also a valid Git branch name, such as `feature-checkout`. The initial branch name defaults to the group name and can be set to a name like `feature/checkout`. Group creation uses local Git references and reuses an existing local branch of the chosen name when available. Members added later use the same initial branch name and branch selection rules.
+## Getting started
+
+1. Launch MonoDeck and follow the setup prompts to install the CLI and choose a workspace directory. For your first workspace, you can use a dedicated empty directory.
+2. In **Add Repository**, enter a repository URL or use the **Import** menu to scan for local repositories. MonoDeck uses your local Git credentials to clone each repository from its remote.
+3. Choose **Create Worktree Group** and select the repositories you need for the task. Pick a group name that works as both a single directory name and a Git branch name, such as `feature-checkout`. The initial branch takes the group name by default. You can also enter a branch name such as `feature/checkout`. MonoDeck creates the group from local Git refs and reuses a local branch with the chosen name if one is available. The same initial branch name and selection rules apply when you add members later.
 
    ![Worktree group creation dialog with a group name, an initial branch, and two selected repositories](./.github/assets/2-create-worktree-group.png)
 
-4. Select a group or a member, then use the toolbar to open it in an installed agent, editor, terminal, or Git tool. Develop, commit, and merge in the external tool.
-5. Use Git Browser to inspect local changes, unique commits, and behind commits. Comparisons use the locally recorded remote default branch as their base.
+4. Select a group or member and use the toolbar to open its directory in an installed agent, editor, terminal, or Git tool. Make changes, commit, and merge in your external tools.
+5. Use Git Browser to review local changes and see which commits are unique to the selected checkout and which commits it is missing. The commit lists compare the checkout with the locally recorded remote default branch.
+6. Update repositories or worktrees as needed.
 
-- **Update Repositories** is the update icon in the `repositories` section. MonoDeck fetches the branch recorded by each repository's local `origin/HEAD` and attempts a fast-forward-only merge in its main worktree. The main worktree must be clean and have the corresponding local branch checked out.
-- **Update Worktrees** is the update icon in the `worktrees` section. MonoDeck uses local Git data to fast-forward the current branches of registered group roots and their worktrees. Each worktree uses its repository's local `origin/HEAD` as the base. Group roots use the workspace repository's local `origin/HEAD`, falling back to the branch checked out at the workspace root only when that reference is absent. MonoDeck skips worktrees with an unavailable base, a detached HEAD, uncommitted changes, an ongoing Git operation, or a diverged branch.
+   - Click the update icon in the `repositories` section to **update repositories**. MonoDeck fetches the branch that each repository's local `origin/HEAD` points to, then attempts a fast-forward-only merge in its main worktree. The main worktree must be clean and have the corresponding local branch checked out.
+   - Click the update icon in the `worktrees` section to **update worktrees**. MonoDeck uses local Git data to fast-forward the current branches of registered group roots and their member worktrees. For a member worktree, the base is its repository's local `origin/HEAD`. For a group root, the base is the workspace repository's local `origin/HEAD`, or the branch checked out at the workspace root if that reference is missing. MonoDeck skips a worktree if its base is unavailable, its HEAD is detached, it has uncommitted changes, a Git operation is in progress, or its branch has diverged from the base.
 
-Cancellation keeps completed updates.
-
-![Worktree update results with updated and skipped items organized by group](./.github/assets/3-worktree-update-results.png)
-
-After reinstalling, you can select the original workspace in Setup or Settings. If its workspace record is missing, MonoDeck attempts to rebuild it from local Git data, preserving branches and changes in the repositories and worktrees it recognizes.
+   ![Worktree update results with updated and skipped items organized by group](./.github/assets/3-worktree-update-results.png)
 
 ## CLI and agents
 
-After installing the CLI through Setup, run these commands from the workspace directory. This example assumes you have already added `order-service` and `storefront-web`.
+After you install the CLI during setup, you can run `mono-deck` commands from the workspace root.
 
 ```bash
-mono-deck workspace tree --json
-mono-deck group create feature-checkout --branch feature/checkout --repo order-service --repo storefront-web
-mono-deck group delete feature-checkout --dry-run
+# Show the workspace structure
+mono-deck workspace tree
+# Create a worktree group
+mono-deck group create '<group>' --repo '<repo1>' --repo '<repo2>'
 ```
 
-Pass a repository ID to `--repo`. The ID is the last component of the repository URL with any trailing `.git` removed. When running outside the workspace, use `--workspace` to specify the root directory. For arguments, see each subcommand's `--help`. For the JSON output format, see the [CLI contract](GLOSSARY.md#external-data-and-cli-contract).
+Once you've installed the bundled workflow skill, start your agent from the workspace root. The agent can use `mono-deck-workflow` automatically for tasks that involve managing repositories or worktree groups. To call the skill explicitly, include `$mono-deck-workflow` in your prompt.
 
-`group edit --repo` specifies the complete desired member set. MonoDeck deletes omitted members. Use `--dry-run` to preview the deletion and run the preview again if the targets change. By default, the CLI asks for confirmation in an interactive terminal. When using `--json` or running non-interactively, pass `--yes` to authorize the deletion targets of that command.
-
-After installing the bundled workflow skill, start your agent from the workspace root and invoke `$mono-deck-workflow` to manage repositories and groups.
+When you're ready to start development, you can tell your agent “Create a worktree group for me.” Based on your discussion, the agent suggests a group name, an initial branch, and which repositories to include. After you confirm the details, the agent runs `mono-deck` to create the group and its worktrees. The new group then appears in MonoDeck.
 
 ### Workspace files and automatic commits
 
 MonoDeck maintains the following files and commits them to the workspace repository as needed.
 
-- **`.gitignore`** receives additional ignore rules as needed. An automatic commit includes the entire file and may include your manual edits.
-- **`mono-deck-workflow`** is synchronized when you open or reload the workspace. Synchronization discards local edits to the skill. For custom workflows, create a separate skill at `.agents/skills/mono-deck-workflow-addon/SKILL.md`.
+- **`.gitignore`** gets new rules as needed, mainly to keep Git from tracking member repositories in the workspace repository. Each automatic commit of `.gitignore` includes the entire file and may pick up your own edits.
+- MonoDeck syncs the **`mono-deck-workflow`** skill when you open or reload the workspace. This discards local edits to the skill. For custom workflows, create a separate skill at `.agents/skills/mono-deck-workflow-addon/SKILL.md`.
 
 ## Usage notes
 
-- **Share configuration.** Export the workspace configuration as YAML from Settings, then import it into the target workspace. Import adds missing repositories and groups. It skips repositories whose IDs and remote URLs match and groups whose names match. If a repository ID matches but the remote URL differs, the import reports a conflict.
-- **Deleting a worktree or group in `worktrees`** permanently removes the affected worktrees and their current local branches. Uncommitted changes are removed with the worktrees, and unmerged commits may be lost. Deleting a repository first removes its managed worktrees in groups and their current local branches, then moves its local clone directory to Trash. Unlock any locked worktrees with Git before deleting. Review the scope and any work you need to keep before confirming.
+- **Share a workspace configuration.** Export it as YAML from Settings, then import it into the target workspace. MonoDeck adds missing repositories and groups. It skips repositories that match on both ID and remote URL, as well as groups with matching names. If an existing repository has the same ID but a different remote URL, MonoDeck reports a conflict.
+- **Deleting a worktree or group in `worktrees`** permanently removes the affected worktrees and their current local branches. Deleting the worktrees discards uncommitted changes, and you may lose unmerged commits. When you delete a repository, MonoDeck removes its managed worktrees across groups and their current local branches before moving the local clone to the Trash. Unlock any locked worktrees with Git before deleting. Before confirming, check what will be deleted and whether it contains work you need to keep.
 
   ![Worktree deletion preview showing its path and Dirty status](./.github/assets/4-delete-member-worktree.png)
 
-- **Cancellation or partial failure** can leave completed changes in place. Check the results for items that completed and those that still need attention.
-- A task member worktree cannot start from a commit that contains **Git submodules**.
+- If you **cancel an operation or it fails partway through**, completed changes may remain in place. Check the results to see what finished and what still needs attention.
+- You can only create a task member worktree from a commit without **Git submodules**.
 
 See the [changelog](CHANGELOG.md) for release changes and the [development guide](DEVELOPMENT.md) for build and test instructions.
