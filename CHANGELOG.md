@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.1.3] - 2026-11-12
+
+### Changed
+
+- Clarify workspace setup and update instructions, and update the bundled agent workflow guide for creating groups, managing membership, and previewing deletions.
+
 ## [2.1.2] - 2026-11-12
 
 ### Fixed
